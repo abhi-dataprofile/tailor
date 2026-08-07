@@ -1,0 +1,35 @@
+# secrets & local state — NEVER commit
+.env
+.env.*
+!.env.example
+*.log
+applications.log
+
+# python
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# playwright / browser
+.cache/
+ms-playwright/
+
+# os / editor
+.DS_Store
+*.swp
+.idea/
+.vscode/
+
+# scratch
+/tmp/
+scratchpad/
+*-backup.html
+index-dark-backup.html
+
+# apply-engine screenshots may contain personal form data — never commit
+applications_out/
+crawl_cache/
+*.jsonl
+connectors.json

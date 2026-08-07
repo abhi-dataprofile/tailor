@@ -1,0 +1,37 @@
+# Render.com blueprint — connect this GitHub repo to Render and it deploys on push.
+# Two services from one repo: the web app, and the background crawler+applier.
+# Set the secret env vars (SUPABASE_*, *_API_KEY) in the Render dashboard, not here.
+services:
+  - type: web
+    name: tailor-web
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: starter                # Playwright/Chromium needs more than the free tier's RAM
+    healthCheckPath: /api/config
+    envVars:
+      - key: HOST
+        value: 0.0.0.0
+      - key: DRY_RUN
+        value: "0"
+      - key: SUPABASE_URL
+        sync: false              # set in dashboard
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
+
+  - type: worker
+    name: tailor-worker
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: starter
+    dockerCommand: bash -c "python3 worker.py & while true; do python3 apply.py; sleep 600; done"
+    envVars:
+      - key: JOB_REFRESH_HOURS
+        value: "1"
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
+      - key: CLAUDE_API_KEY
+        sync: false

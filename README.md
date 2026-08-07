@@ -1,10 +1,47 @@
-# Resume Tailor — runs entirely on your computer
+# Tailor — AI job-application platform
 
-Paste a job description, and this tool understands the role, then rewrites your
-summary and bullet points, reprioritizes your skills, and surfaces or suggests
-projects — producing a finished, editable resume.
+Find roles across thousands of career pages, tailor your résumé to each one,
+auto-fill and (optionally) submit the application, and track everything —
+**Find → Prep → Apply → Track**.
 
-**Everything runs locally.** The "understanding" and the writing are done by a
+Runs **local-first** (your data in the browser, tailoring on your machine via
+[Ollama](https://ollama.com) or heuristics — no keys needed), and scales to a
+**cloud deployment** (Supabase + hourly crawler + background auto-applier) when
+you add keys.
+
+## Quick start (local)
+```bash
+python3 serve.py          # → http://localhost:8765
+```
+First run opens onboarding: upload your résumé (it's parsed and prefilled), confirm
+the extra things applications ask — work authorization, mailing address, links —
+and you're ready. Tailoring uses a local Ollama model if present, else a heuristic
+fallback. Any provider key (Claude / Gemini / OpenAI) can be added in **⚙ Model**.
+
+## Go cloud (multi-user + background auto-apply)
+```bash
+cp .env.example .env      # add Supabase + LLM keys
+./run.sh --workers        # web + hourly crawler + background applier
+```
+
+## Docs
+| Doc | What |
+|---|---|
+| [SETUP.md](SETUP.md) | local install + Ollama |
+| [CLOUD.md](CLOUD.md) | Supabase storage + background jobs |
+| [DEPLOY.md](DEPLOY.md) | containerized deploy (Render / Railway / Fly, push-to-deploy) |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | how the pieces fit |
+
+## Safety
+Legal / work-authorization / EEO answers are filled **only** from what you enter —
+never guessed. CAPTCHA-protected boards (modern Greenhouse, Workday, iCIMS) are
+detected and left for manual apply. Auto-submit is **off by default** and per-user.
+
+---
+
+## Local mode — how it works
+
+**Everything can run locally.** The "understanding" and the writing are done by a
 model running on *your* machine through [Ollama](https://ollama.com). Nothing is
 uploaded, there are no API keys, and it works offline once the model is
 downloaded. If Ollama isn't running, the app still works in a lighter

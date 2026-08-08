@@ -7,6 +7,7 @@ and by serve.py (live discovery). Pure stdlib — no third-party deps.
 """
 import json, os, re, time, html, urllib.request
 from concurrent.futures import ThreadPoolExecutor
+import geo
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 UA = {"User-Agent": "Mozilla/5.0 (Macintosh) ResumeTailor/1.0"}
@@ -135,6 +136,7 @@ def _norm(vendor, slug, external_id, title, url, location, remote, desc,
         "description": full[:8000],
         "skills": extract_skills(full),
         "sponsorship": sponsorship(full),
+        "country": geo.country_of(location or ""),   # normalized country for accurate location filtering
         # fine-grained detail for downstream matching / filtering / optimisation
         "department": (department or "")[:120],
         "team": (team or "")[:120],

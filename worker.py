@@ -65,7 +65,7 @@ def _row(j, now):
     return {
         "source_uid": j["source_uid"], "vendor": j["vendor"], "company_slug": j["company_slug"],
         "external_id": j["external_id"], "title": j["title"], "location": j["location"],
-        "remote": j["remote"], "url": j["url"], "description": j["description"],
+        "country": j.get("country") or "", "remote": j["remote"], "url": j["url"], "description": j["description"],
         "skills": j["skills"], "sponsorship": j["sponsorship"], "posted_at": j.get("posted_at"),
         "department": j.get("department"), "team": j.get("team"),
         "employment_type": j.get("employment_type"), "compensation": j.get("compensation"),
@@ -124,11 +124,35 @@ def dry():
             print(f"    - {j['title'][:52]:52} | {j.get('posted_at')} | visa={j['sponsorship']:7} | skills={j['skills'][:6]}")
     print("\n[dry] OK — set SUPABASE_URL + SUPABASE_SERVICE_KEY to persist.")
 
+def backfill_country():
+    """One-time: set jobs.country on existing rows from their location text."""
+    import geo
+    done = 0
+    while True:
+        rows = sb.select("jobs", {"select": "id,location", "country": "is.null", "limit": "1000"})
+        if not rows:
+            break
+        buckets = {}
+        for r in rows:
+            buckets.setdefault(geo.country_of(r.get("location") or ""), []).append(r["id"])
+        for country, ids in buckets.items():
+            for i in range(0, len(ids), 400):
+                chunk = ids[i:i + 400]
+                sb.update("jobs", {"id": f"in.({','.join(map(str, chunk))})"}, {"country": country})
+                done += len(chunk)
+        print(f"[backfill] country set on {done} rows…")
+    print(f"[backfill] done — {done} rows updated")
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--once", action="store_true", help="run a single cycle and exit")
     ap.add_argument("--dry", action="store_true", help="crawl a sample and print, no DB writes")
+    ap.add_argument("--backfill", action="store_true", help="set country on existing rows from location, then exit")
     args = ap.parse_args()
+    if args.backfill:
+        if not sb.is_configured():
+            print("Supabase not configured."); return
+        return backfill_country()
 
     if args.dry or not sb.is_configured():
         if not sb.is_configured() and not args.dry:

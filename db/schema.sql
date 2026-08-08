@@ -40,6 +40,7 @@ create table if not exists jobs (
   external_id   text,
   title         text    not null,
   location      text,
+  country       text,                                   -- normalized from location (US state/city → United States)
   remote        boolean not null default false,
   url           text    not null,
   description   text,
@@ -62,6 +63,7 @@ create index if not exists jobs_open_idx    on jobs (is_open) where is_open;
 create index if not exists jobs_seen_idx    on jobs (first_seen_at desc);
 create index if not exists jobs_skills_idx  on jobs using gin (skills);
 create index if not exists jobs_title_trgm  on jobs using gin (title gin_trgm_ops);
+create index if not exists jobs_country_idx on jobs (country);
 
 -- ---------- user profiles (single 'local' user by default; ready for multi-user) ----------
 create table if not exists profiles (

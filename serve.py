@@ -403,7 +403,7 @@ def jobs_query(qs, user="local"):
     def one(k, d=""): return (qs.get(k) or [d])[0].strip()
     terms = [t.strip() for t in one("q").lower().split(",") if len(t.strip()) >= 2]
     loc = one("loc"); vendor = one("vendor").lower(); etype = one("etype")
-    company = one("company"); days = one("days"); sort = one("sort", "match")
+    country = one("country"); company = one("company"); days = one("days"); sort = one("sort", "match")
     remote = one("remote") in ("1", "true")
     spon = one("sponsor")                                   # '', 'hide', 'yes'
     params = {"select": "*", "is_open": "eq.true", "order": "posted_at.desc.nullslast", "limit": "600"}
@@ -413,6 +413,7 @@ def jobs_query(qs, user="local"):
     if etype:                           params["employment_type"] = f"ilike.*{etype}*"
     if company:                         params["company_slug"] = f"ilike.*{company}*"
     if vendor in ("greenhouse", "lever", "ashby"): params["vendor"] = f"eq.{vendor}"
+    if country:                         params["country"] = f"eq.{country}"
     if days.isdigit() and int(days) > 0:
         cutoff = time.strftime("%Y-%m-%d", time.gmtime(time.time() - int(days) * 86400))
         params["posted_at"] = f"gte.{cutoff}"
@@ -437,8 +438,10 @@ def jobs_query(qs, user="local"):
     from collections import Counter
     ets = Counter(j.get("employment_type") for j in jobs if j.get("employment_type"))
     comps = Counter(j.get("company_slug") for j in jobs if j.get("company_slug"))
+    ctry = Counter(j.get("country") for j in jobs if j.get("country"))
     vends = sorted({j.get("vendor") for j in jobs if j.get("vendor")})
     facets = {"employment_types": [e for e, _ in ets.most_common(12)],
+              "countries": [c for c, _ in ctry.most_common(40)],
               "companies": [c for c, _ in comps.most_common(50)], "vendors": vends}
     return {"ok": True, "count": len(jobs), "facets": facets, "jobs": jobs[:200]}
 

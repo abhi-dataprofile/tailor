@@ -20,7 +20,7 @@ Requires (optional dependency):
 Test safely (prepares + screenshots, never submits):
     python3 apply_browser.py --url "https://job-boards.greenhouse.io/acme/jobs/123"
 """
-import os, re, time, tempfile, argparse, datetime
+import os, re, time, tempfile, argparse, datetime, json
 
 OUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "applications_out")
 
@@ -305,11 +305,53 @@ def _fill_date(el, dobj):
         try: el.fill(v); return True
         except Exception: return False
 
-def _fill_questions(page, bank):
-    """Fill selects, radios and text fields by label from the answer bank.
-    Returns a list of required questions it could NOT answer."""
+# Questions we will NEVER let a model answer — legal / comp / demographic / eligibility.
+# These come ONLY from the user's explicit standing answers (or they stay unfilled → needs_you).
+_SENSITIVE_RE = re.compile(
+    r"(sponsor|visa|authoriz\w* to work|work authoriz|right to work|citizen|immigration|"
+    r"salary|compensation|expected pay|desired pay|felon|convict|criminal|background check|"
+    r"disab|veteran|gender|\bsex\b|\brace\b|ethnic|hispanic|latino|orientation|"
+    r"date of birth|birth date|\bdob\b|social security|\bssn\b|\bage\b|18 years|over 18)", re.I)
+
+def _strip_html(h):
+    return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", h or "")).strip()
+
+def _llm_answer_fields(context, fields):
+    """Answer NON-sensitive application questions from the candidate's own material, using the
+    backend LLM (llm.py: a configured hosted key OR local Ollama). Returns {label: answer}.
+    Returns {} when no model is available or on any error — callers then fall back to needs_you.
+    The model is instructed to return '' for anything the material doesn't support — never invent."""
+    fields = [f for f in (fields or []) if f.get("label")]
+    if not fields or not context:
+        return {}
+    try:
+        import llm
+        if not llm.available():
+            return {}
+        qs = []
+        for f in fields:
+            qs.append({"q": f["label"], "choose_one_of": f["options"][:12]} if f.get("options") else {"q": f["label"]})
+        sysp = ("You are completing a job application AS the candidate, using ONLY the candidate "
+                "material provided. If the material does not support an answer, return an empty string "
+                "for that question — NEVER invent facts, dates, numbers, employers, or credentials. "
+                "For questions with choose_one_of, reply with EXACTLY one of those options. Keep "
+                "free-text answers concise, first-person and professional. "
+                'Return STRICT JSON: {"answers":{"<exact question text>":"<answer>"}}.')
+        userp = "CANDIDATE MATERIAL:\n" + context[:3800] + "\n\nQUESTIONS (JSON):\n" + json.dumps(qs)
+        raw = llm.gen(sysp, userp, json_mode=True, temp=0, max_tokens=800)
+        m = re.search(r"\{[\s\S]*\}", raw or "")
+        obj = json.loads(m.group(0)) if m else {}
+        return {k: v.strip() for k, v in (obj.get("answers") or {}).items() if isinstance(v, str) and v.strip()}
+    except Exception:
+        return {}
+
+def _fill_questions(page, bank, context=""):
+    """Fill selects, radios and text fields from the answer bank; then, for any NON-sensitive
+    required question still unanswered, ask the backend LLM from the candidate's material.
+    Returns the list of required questions still unanswered (→ needs_you)."""
     bank = bank or {}
     unfilled = []
+    pending = []   # (el, meta) non-sensitive required Qs to try via LLM after the deterministic pass
     # selects
     for sel in page.query_selector_all("select"):
         try:
@@ -319,7 +361,11 @@ def _fill_questions(page, bank):
             if ans and _select_by_text(sel, ans): continue
             if _is_required(sel) and not (cur and cur not in ("", "0")):
                 opts = sel.evaluate("e=>[...e.options].map(o=>o.text).filter(t=>t&&!/^select/i.test(t)).slice(0,20)")
-                unfilled.append({"label": label or "(dropdown)", "type": "select", "options": opts})
+                meta = {"label": label or "(dropdown)", "type": "select", "options": opts}
+                if _SENSITIVE_RE.search(label or ""):
+                    unfilled.append(meta)                      # sensitive → standing only, never LLM
+                else:
+                    pending.append((sel, meta))
         except Exception:
             continue
     # radio groups
@@ -366,9 +412,25 @@ def _fill_questions(page, bank):
                 el.fill(str(ans)); continue
             if _is_required(el):
                 hint = (el.evaluate("e=>e.placeholder||e.name||e.id||''") or "").replace("_", " ").strip()
-                unfilled.append({"label": label or hint or "(text field)", "type": "text", "name": hint})
+                meta = {"label": label or hint or "(text field)", "type": "text", "name": hint}
+                if _SENSITIVE_RE.search(label or ""):
+                    unfilled.append(meta)                      # sensitive → standing only, never LLM
+                else:
+                    pending.append((el, meta))
         except Exception:
             continue
+    # LLM pass: answer the non-sensitive required questions from the candidate's own material.
+    answered = _llm_answer_fields(context, [m for _, m in pending]) if (pending and context) else {}
+    for el, meta in pending:
+        a = answered.get(meta["label"])
+        done = False
+        if a:
+            try:
+                done = _select_by_text(el, a) if meta["type"] == "select" else (el.fill(a) or True)
+            except Exception:
+                done = False
+        if not done:
+            unfilled.append(meta)                              # model couldn't answer → ask the user
     # de-dup by label
     seen=set(); out=[]
     for u in unfilled:
@@ -463,7 +525,13 @@ def submit(job, answers, resume_html, standing=None, dry=True, headless=True, ti
                     _bank.setdefault(_k, answers[_k])
             if full:
                 _bank.setdefault("full_name", full)
-            unfilled_required = _fill_questions(page, _bank)
+            # material the LLM may answer NON-sensitive free-text from — the candidate's own
+            # résumé + role + explicitly-provided facts (never anything invented).
+            _facts = {k: v for k, v in (standing or {}).items() if k != "_custom" and v}
+            context = ("Role: " + (job.get("title") or "") + "\nCandidate résumé:\n"
+                       + _strip_html(resume_html)[:3400]
+                       + ("\nKnown facts: " + json.dumps(_facts) if _facts else ""))
+            unfilled_required = _fill_questions(page, _bank, context)
             shot = os.path.join(OUT_DIR, f"{re.sub(r'[^a-z0-9]+','-',(job.get('title') or 'job').lower())[:40]}-{int(time.time())}.png")
             page.screenshot(path=shot, full_page=True)
             prepared = {"filled": filled, "resume_attached": attached, "screenshot": shot, "unfilled_required": unfilled_required}

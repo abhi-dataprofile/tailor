@@ -241,10 +241,11 @@ def run_retry():
         print(f"  retry [{a['user_id'][:8]}] job {a['job_id']} -> {st}")
         retried += 1
         time.sleep(RATE_SLEEP)
+    confirmed = serve.reconcile_confirmations()   # promote sent→applied from confirmation emails
     manual = sb.select("applications", {"status": "eq.blocked_captcha", "select": "user_id,job_id", "limit": "500"})
     review = sb.select("applications", {"status": "eq.needs_you", "select": "user_id,job_id", "limit": "500"})
     unconf = sb.select("applications", {"status": "eq.submitted_unconfirmed", "select": "user_id,job_id", "limit": "500"})
-    print(f"[retry] re-attempted {retried} · captcha queue (need a human): {len(manual)} · "
+    print(f"[retry] re-attempted {retried} · confirmed by email: {confirmed} · captcha queue (need a human): {len(manual)} · "
           f"awaiting your answers: {len(review)} · sent but unconfirmed: {len(unconf)}")
 
 def dry():
@@ -265,11 +266,14 @@ def main():
     ap.add_argument("--user")
     ap.add_argument("--dry", action="store_true")
     ap.add_argument("--retry", action="store_true", help="re-attempt transient failures; report the manual queue")
+    ap.add_argument("--reconcile", action="store_true", help="scan confirmation emails; promote sent→applied")
     a = ap.parse_args()
     if a.dry or not sb.is_configured():
         if not sb.is_configured() and not a.dry:
             print("Supabase not configured — running --dry.\n")
         return dry()
+    if a.reconcile:
+        print(f"[reconcile] confirmed by email: {serve.reconcile_confirmations()}"); return
     if a.retry:
         return run_retry()
     run(a.user)

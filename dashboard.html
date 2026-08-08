@@ -365,7 +365,12 @@ function activityActions(a){
   const rz=a.has_resume?`<button class="btn ghost" style="padding:6px 11px" onclick="viewActivityResume(${a.job_id})" title="The exact résumé saved for this application">📄 résumé</button>`:"";
   if(a.status==="blocked_captcha")return `<a class="btn accent" style="padding:6px 11px" href="${esc(a.url)}" target="_blank" rel="noopener">Solve captcha ↗</a>`+rz+open;
   if(a.status==="needs_you")return `<a class="btn" style="padding:6px 11px" href="index.html#profile">Add answers</a>`+rz+open;
+  if(a.status==="submitted_unconfirmed")return `<button class="btn" style="padding:6px 11px" onclick="markApplied(${a.job_id})" title="Confirm you received an application acknowledgement">Mark applied ✓</button>`+rz+open;
   return rz+open;
+}
+async function markApplied(jobId){
+  try{const r=await fetch("/api/confirm",{method:"POST",headers:{"Content-Type":"application/json",...authHeaders()},body:JSON.stringify({job_id:jobId})}).then(x=>x.json());
+    if(r&&r.ok){toast("Marked as applied ✓");loadActivity();}else toast("Couldn't update");}catch(e){toast("Couldn't reach server");}
 }
 async function viewActivityResume(jobId){
   let d;try{d=await fetch("/api/application-resume?job="+jobId,{headers:authHeaders()}).then(x=>x.json());}catch(e){d=null;}

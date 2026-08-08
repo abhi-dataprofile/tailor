@@ -357,6 +357,93 @@ def _mirror_application(user, job_id, res, answers, rec, resume_html=""):
     except Exception:
         pass
 
+# phrases that mark an email as an application confirmation (not a rejection/newsletter)
+_CONFIRM_PHRASES = ("thank you for applying", "thanks for applying", "application received",
+    "received your application", "we received your application", "your application has been received",
+    "thank you for your application", "thanks for your interest", "successfully submitted",
+    "we've received your application", "application was submitted", "your application for",
+    "application to", "thank you for submitting", "we have received your application")
+
+def _mark_confirmed(user, job_id, source):
+    """Promote a submitted_unconfirmed application to confirmed (never touches other states)."""
+    now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    rows = sb.select("applications", {"user_id": f"eq.{user}", "job_id": f"eq.{job_id}",
+                                      "select": "status,receipt"}) or []
+    if not rows:
+        return False
+    rec = rows[0].get("receipt") or {}
+    rec["confirmed_via"] = source
+    sb.upsert("applications", [{"user_id": user, "job_id": job_id, "status": "confirmed",
+              "confirmed_at": now, "receipt": rec}], on_conflict="user_id,job_id", update=True)
+    return True
+
+def confirm_from_email(user_id, msg):
+    """If an inbound email is an application confirmation, match it to one of the user's
+    submitted_unconfirmed applications and promote it to confirmed. Conservative — needs a
+    real signal (company/title match), so a generic 'thanks' can't confirm the wrong job."""
+    if not (sb and sb.is_configured() and user_id):
+        return None
+    text = ((msg.get("subject") or "") + " " + (msg.get("body") or "")).lower()
+    if not any(p in text for p in _CONFIRM_PHRASES):
+        return None
+    frm = (msg.get("from_addr") or "").lower()
+    apps = sb.select("applications", {"user_id": f"eq.{user_id}", "status": "eq.submitted_unconfirmed",
+            "select": "job_id,receipt,submitted_at", "order": "submitted_at.desc", "limit": "100"}) or []
+    if not apps:
+        return None
+    ids = [str(a["job_id"]) for a in apps if a.get("job_id")]
+    jobs = {}
+    if ids:
+        for j in sb.select("jobs", {"id": f"in.({','.join(ids)})",
+                                    "select": "id,company_slug,title,url"}) or []:
+            jobs[j["id"]] = j
+    best, best_score = None, 0
+    for a in apps:
+        j = jobs.get(a["job_id"], {}); rec = a.get("receipt") or {}
+        company = (j.get("company_slug") or "").lower()
+        title = (j.get("title") or rec.get("job") or "").lower()
+        url = (j.get("url") or rec.get("url") or "").lower()
+        score = 0
+        if company and (company in text or company in frm):
+            score += 3
+        for dom in ("greenhouse", "lever", "ashby", "workday"):
+            if dom in frm and dom in url:
+                score += 1
+        tw = re.findall(r"[a-z]{4,}", title)[:6]
+        if tw and sum(1 for w in tw if w in text) >= 2:
+            score += 2
+        if score > best_score:
+            best, best_score = a, score
+    # require a genuine signal (company match, or title-words + ATS-domain) to avoid false confirms
+    if best and best_score >= 3:
+        try:
+            if _mark_confirmed(user_id, best["job_id"], "email: " + (msg.get("subject") or "")[:120]):
+                return best["job_id"]
+        except Exception:
+            return None
+    return None
+
+def reconcile_confirmations(user=None, hours=168):
+    """Safety-net sweep: re-run the email matcher over recent inbound mail, catching
+    confirmations that arrived before their application row existed (or a missed webhook).
+    Returns the number of applications promoted to confirmed."""
+    if not (sb and sb.is_configured()):
+        return 0
+    since = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - hours * 3600))
+    q = {"select": "user_id,from_addr,subject,body", "received_at": f"gte.{since}",
+         "order": "received_at.desc", "limit": "1000"}
+    if user:
+        q["user_id"] = f"eq.{user}"
+    n = 0
+    for e in sb.select("emails", q) or []:
+        try:
+            if confirm_from_email(e.get("user_id"), {"from_addr": e.get("from_addr"),
+                                                     "subject": e.get("subject"), "body": e.get("body")}):
+                n += 1
+        except Exception:
+            continue
+    return n
+
 # ============================================================
 #  SUPABASE-BACKED READ/WRITE API (jobs index + user profile)
 #  Read path: query the crawler-populated `jobs` table, rank by
@@ -802,6 +889,20 @@ class H(SimpleHTTPRequestHandler):
                 return self._json(200, {"ok": True})
             except Exception as e:
                 return self._json(200, {"ok": False, "status": "error", "detail": str(e)[:200]})
+        if self.path == "/api/confirm":
+            # manual override: the user tells us an application was actually received.
+            if not (sb and sb.is_configured()):
+                return self._json(200, {"ok": False, "status": "no_db"})
+            n = int(self.headers.get("Content-Length", 0))
+            body = json.loads(self.rfile.read(n) or b"{}")
+            user = _req_user(self); jid = body.get("job_id")
+            if not jid:
+                return self._json(200, {"ok": False, "detail": "no job_id"})
+            try:
+                ok = _mark_confirmed(user, jid, "you marked it applied")
+                return self._json(200, {"ok": bool(ok)})
+            except Exception as e:
+                return self._json(200, {"ok": False, "status": "error", "detail": str(e)[:200]})
         if self.path == "/api/billing/checkout":
             if not (billing and billing.provider()):
                 return self._json(200, {"ok": False, "detail": "No billing provider configured."})
@@ -825,12 +926,16 @@ class H(SimpleHTTPRequestHandler):
             try: payload = json.loads(raw)
             except Exception: payload = dict(urllib.parse.parse_qsl(raw.decode("utf-8", "replace")))
             msg = inbox.normalize(payload, self.headers) if inbox else {}
+            confirmed = None
             if msg.get("user_id") and sb and sb.is_configured():
                 try:
                     sb.insert("emails", [{"user_id": msg["user_id"], "from_addr": msg["from_addr"],
                                           "subject": msg["subject"], "body": msg["body"], "otp": msg["otp"]}], return_rep=False)
                 except Exception: pass
-            return self._json(200, {"ok": True})
+                try:
+                    confirmed = confirm_from_email(msg["user_id"], msg)   # "Sent → Applied ✓" when it's a confirmation
+                except Exception: confirmed = None
+            return self._json(200, {"ok": True, "confirmed_job_id": confirmed})
         if self.path == "/api/apply-browser":
             n = int(self.headers.get("Content-Length", 0))
             body = json.loads(self.rfile.read(n) or b"{}")

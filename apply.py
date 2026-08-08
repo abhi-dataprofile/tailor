@@ -136,18 +136,34 @@ def fill_answers(job, profile, ans):
             pass
     return ans, blocked
 
-def resume_for(user_id, job_id, profile):
-    rows = sb.select("tailorings", {"user_id": f"eq.{user_id}", "job_id": f"eq.{job_id}", "select": "resume_html,summary,bullets"})
+def resume_for(user_id, job_id, profile, job=None):
+    """A COMPLETE, job-targeted résumé for this application — never the old barebones stub.
+      1. a résumé the user explicitly saved for this job (tailorings.resume_html) wins;
+      2. otherwise build a full résumé from the profile, using the tailored summary if we
+         have one — tailoring the summary ON DEMAND (LLM) when it's missing and a model is
+         configured; falling back to the profile's own summary when it isn't."""
+    import resume_build
+    rows = sb.select("tailorings", {"user_id": f"eq.{user_id}", "job_id": f"eq.{job_id}",
+                                    "select": "resume_html,summary,bullets"})
     r = rows[0] if rows else {}
     if r.get("resume_html"):
         return r["resume_html"]
-    parts = [f"<h1>{profile.get('name','')}</h1>", f"<p>{profile.get('contact','')}</p>"]
-    if r.get("summary"):
-        parts.append(f"<p>{r['summary']}</p>")
-    parts.append("<p>Skills: " + ", ".join(profile.get("skills") or []) + "</p>")
-    for b in (r.get("bullets") or []):
-        parts.append(f"<li>{b}</li>")
-    return "<html><body>" + "".join(parts) + "</body></html>"
+    # tailor the summary on demand if we don't have one yet (cache it for next time)
+    if not r.get("summary") and job is not None:
+        try:
+            import pipeline
+            t = pipeline.tailor(profile, job)
+            if t.get("summary"):
+                r = {"summary": t["summary"], "bullets": t.get("bullets") or []}
+                try:
+                    sb.upsert("tailorings", [{"user_id": user_id, "job_id": job_id, "summary": t["summary"],
+                              "bullets": t.get("bullets") or [], "provider": t.get("provider")}],
+                              on_conflict="user_id,job_id", update=True)
+                except Exception:
+                    pass
+        except Exception:
+            pass   # no LLM / tailor failed → fall back to the profile summary below
+    return resume_build.build_resume_html(profile, r)
 
 def _record(user_id, job, res, ans, apply_id, blocked, resume_html=""):
     import hashlib as _h
@@ -189,7 +205,7 @@ def apply_one(user_id, profile, job):
         _record(user_id, job, {"ok": False, "status": "needs_review",
                 "detail": "Missing standing answers: " + "; ".join(blocked[:4])}, ans, apply_id, blocked)
         return "needs_review"
-    resume = resume_for(user_id, job["id"], profile)
+    resume = resume_for(user_id, job["id"], profile, job)
     res = submit_application(job, ans, resume, dry=bool(serve.DRY_RUN))
     _record(user_id, job, res, ans, apply_id, [], resume)
     return (res.get("backend", "?") + ":" + str(res.get("status")))

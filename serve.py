@@ -586,6 +586,9 @@ def applications_feed(user):
         for j in sb.select("jobs", {"id": f"in.({','.join(ids)})",
                                     "select": "id,title,company_slug,vendor,url,location"}) or []:
             jobs[j["id"]] = j
+    # cheap presence check: which of these have a saved résumé snapshot (job_id only, no bulky html)
+    have_resume = {r["job_id"] for r in (sb.select("applications",
+                   {"user_id": f"eq.{user}", "resume_html": "not.is.null", "select": "job_id"}) or [])}
     out = []
     for a in apps:
         rec = a.get("receipt") or {}
@@ -607,6 +610,7 @@ def applications_feed(user):
             "next_retry_at": a.get("next_retry_at") or "",
             "unfilled": [u.get("label") for u in (rec.get("unfilled_required") or []) if isinstance(u, dict) and u.get("label")][:6],
             "has_shot": bool(rec.get("screenshot")),
+            "has_resume": a["job_id"] in have_resume,
         })
     out.sort(key=lambda r: str(r.get("at") or ""), reverse=True)
     counts = {}
@@ -704,6 +708,18 @@ class H(SimpleHTTPRequestHandler):
         if urllib.parse.urlparse(self.path).path == "/api/shot":
             qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
             return self._send_shot(_req_user(self), (qs.get("job") or [""])[0])
+        if urllib.parse.urlparse(self.path).path == "/api/application-resume":
+            if not (sb and sb.is_configured()):
+                return self._json(200, {"ok": False, "status": "no_db"})
+            qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            jid = (qs.get("job") or [""])[0]
+            try:
+                rows = sb.select("applications", {"user_id": f"eq.{_req_user(self)}", "job_id": f"eq.{jid}",
+                                                  "select": "resume_html", "limit": "1"}) or []
+                html = rows[0].get("resume_html") if rows else None
+                return self._json(200, {"ok": bool(html), "resume_html": html or ""})
+            except Exception as e:
+                return self._json(200, {"ok": False, "detail": str(e)[:160]})
         if self.path.startswith("/api/jobs") or self.path.startswith("/api/profile"):
             if not (sb and sb.is_configured()):
                 return self._json(200, {"ok": False, "status": "no_db",
@@ -751,6 +767,38 @@ class H(SimpleHTTPRequestHandler):
                        "status": body.get("status", "saved"),
                        "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
                 sb.upsert("user_jobs", [row], on_conflict="user_id,job_id", update=True)
+                return self._json(200, {"ok": True})
+            except Exception as e:
+                return self._json(200, {"ok": False, "status": "error", "detail": str(e)[:200]})
+        if self.path == "/api/track":
+            # Record a manual/self-apply in the applications table so it shows in the
+            # Activity view WITH the résumé the user applied with. Never downgrades a
+            # row the agent already confirmed.
+            if not (sb and sb.is_configured()):
+                return self._json(200, {"ok": False, "status": "no_db"})
+            n = int(self.headers.get("Content-Length", 0))
+            body = json.loads(self.rfile.read(n) or b"{}")
+            user = _req_user(self)
+            jid = body.get("job_id")
+            if not jid:
+                return self._json(200, {"ok": False, "detail": "no job_id"})
+            try:
+                status = body.get("status") or "submitted_unconfirmed"
+                resume_html = body.get("resume_html") or ""
+                prior = sb.select("applications", {"user_id": f"eq.{user}", "job_id": f"eq.{jid}",
+                                                   "select": "status,submitted_at,resume_html"}) or []
+                p = prior[0] if prior else {}
+                if p.get("status") == "confirmed":
+                    return self._json(200, {"ok": True, "kept": "confirmed"})
+                now_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+                row = {"user_id": user, "job_id": jid, "status": status, "human_in_loop": True,
+                       "submitted_at": p.get("submitted_at") or now_iso,
+                       "receipt": {"backend": body.get("backend") or "you",
+                                   "detail": body.get("detail") or "Marked applied on the company site.",
+                                   "url": body.get("url"), "job": body.get("label")}}
+                if resume_html or p.get("resume_html"):
+                    row["resume_html"] = resume_html or p.get("resume_html")
+                sb.upsert("applications", [row], on_conflict="user_id,job_id", update=True)
                 return self._json(200, {"ok": True})
             except Exception as e:
                 return self._json(200, {"ok": False, "status": "error", "detail": str(e)[:200]})

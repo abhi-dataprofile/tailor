@@ -303,6 +303,15 @@ function authHeaders(){try{const s=JSON.parse(localStorage.getItem("tsenta_sessi
 /* ---- Auto-apply activity: the agent's work, made visible ---- */
 let ACT=[],ACT_TAB="all";
 const ACT_TABS=[["all","All"],["needs_you","Needs you"],["blocked_captcha","Captcha"],["submitted_unconfirmed","Sent"],["confirmed","Applied"],["failed_transient","Retrying"],["failed_permanent","Failed"]];
+/* one-time: push applies previously tracked only in this browser up to the server,
+   so they appear in the Activity view (with their résumé if we captured one). */
+async function syncLocalToServer(){
+  try{if(localStorage.getItem("tailor_synced_v1")==="1")return;}catch(e){}
+  const pending=Object.entries(STATE).filter(([,s])=>s.status==="submitted"&&s.jobId);
+  await Promise.all(pending.map(([url,s])=>trackServer({id:s.jobId,url,title:s.title,company:s.company},
+    "submitted_unconfirmed", s.resume_html||resumeHtml())));
+  try{localStorage.setItem("tailor_synced_v1","1");}catch(e){}
+}
 async function loadActivity(){
   const list=$("actList");if(list&&!ACT.length)list.innerHTML='<div class="skel"></div><div class="skel"></div>';
   let d;try{d=await fetch("/api/applications",{headers:authHeaders()}).then(x=>x.json());}catch(e){d={ok:false};}
@@ -353,10 +362,18 @@ function hydrateShots(){document.querySelectorAll("#actList img[data-shot]").for
 });}
 function activityActions(a){
   const open=a.url?`<a class="btn ghost" style="padding:6px 11px" href="${esc(a.url)}" target="_blank" rel="noopener">Open form ↗</a>`:"";
-  if(a.status==="blocked_captcha")return `<a class="btn accent" style="padding:6px 11px" href="${esc(a.url)}" target="_blank" rel="noopener">Solve captcha ↗</a>`+open;
-  if(a.status==="needs_you")return `<a class="btn" style="padding:6px 11px" href="index.html#profile" >Add answers</a>`+open;
-  if(a.status==="submitted_unconfirmed")return open;
-  return open;
+  const rz=a.has_resume?`<button class="btn ghost" style="padding:6px 11px" onclick="viewActivityResume(${a.job_id})" title="The exact résumé saved for this application">📄 résumé</button>`:"";
+  if(a.status==="blocked_captcha")return `<a class="btn accent" style="padding:6px 11px" href="${esc(a.url)}" target="_blank" rel="noopener">Solve captcha ↗</a>`+rz+open;
+  if(a.status==="needs_you")return `<a class="btn" style="padding:6px 11px" href="index.html#profile">Add answers</a>`+rz+open;
+  return rz+open;
+}
+async function viewActivityResume(jobId){
+  let d;try{d=await fetch("/api/application-resume?job="+jobId,{headers:authHeaders()}).then(x=>x.json());}catch(e){d=null;}
+  if(!d||!d.ok||!d.resume_html)return toast("No saved résumé for this one");
+  let m=$("resumeModal");
+  if(!m){m=document.createElement("div");m.id="resumeModal";m.className="shot-modal";m.onclick=e=>{if(e.target===m)m.classList.remove("on");};document.body.appendChild(m);}
+  m.innerHTML=`<div style="max-width:820px;width:100%;max-height:90vh;overflow:auto;background:#fff;border-radius:14px;padding:26px">${d.resume_html}</div>`;
+  m.classList.add("on");
 }
 async function openShot(jobId){
   const m=$("shotModal"),img=$("shotImg");if(!m||!img)return;
@@ -437,11 +454,18 @@ function viewSentResume(url){
     <div style="border:1px solid var(--line);border-radius:12px;padding:20px;background:#fff;max-height:70vh;overflow:auto">${s.resume_html}</div></div>`;
 }
 function findJob(url){return JOBS.find(j=>j.url===url)||{url,title:(STATE[url]||{}).title,company:(STATE[url]||{}).company};}
-function applyJob(url){const j=findJob(url);setState(url,"submitted",j);window.open(url,"_blank","noopener");renderAll();toast("Opened posting — tracked as Submitted");}
+function applyJob(url){const j=findJob(url);const rz=resumeHtml();setState(url,"submitted",j,{resume_html:rz});window.open(url,"_blank","noopener");renderAll();trackServer(j,"submitted_unconfirmed",rz).then(loadActivity);toast("Opened posting — tracked with your résumé");}
 function passJob(url){setState(url,"skipped",findJob(url));renderAll();}
 function unTrack(url){delete STATE[url];localStorage.setItem("tailor_dash_state",JSON.stringify(STATE));renderAll();}
 function applyTop(){const l=visible().slice(0,5);if(!l.length){toast("No matches to apply to");return;}
-  l.forEach((j,i)=>{setState(j.url,"submitted",j);if(i<3)window.open(j.url,"_blank","noopener");});renderAll();toast(`Tracked ${l.length} — opened the first ${Math.min(3,l.length)}`);}
+  const rz=resumeHtml();l.forEach((j,i)=>{setState(j.url,"submitted",j,{resume_html:rz});trackServer(j,"submitted_unconfirmed",rz);if(i<3)window.open(j.url,"_blank","noopener");});renderAll();loadActivity();toast(`Tracked ${l.length} — opened the first ${Math.min(3,l.length)}`);}
+/* record a manual/self-apply on the server so it appears in Activity WITH the résumé */
+function trackServer(job,status,resume_html){
+  if(!(job&&job.id))return Promise.resolve();
+  return fetch("/api/track",{method:"POST",headers:{"Content-Type":"application/json",...authHeaders()},
+    body:JSON.stringify({job_id:job.id,status:status,resume_html:resume_html||"",url:job.url,label:(job.title||"")+" · "+(job.company||job.company_slug||""),
+      detail:"You opened the posting to apply — mark confirmed once you hear back.",backend:"you"})}).catch(()=>{});
+}
 function exportCSV(){const rows=[["company","role","status","when","url"]].concat(Object.entries(STATE).map(([u,s])=>[s.company,s.title,s.status,s.at,u]));
   const csv=rows.map(r=>r.map(x=>'"'+String(x||"").replace(/"/g,'""')+'"').join(",")).join("\n");
   const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"}));a.download="applications.csv";a.click();toast("Exported applications.csv");}
@@ -554,10 +578,11 @@ async function autoApply(url,btn){
   if(btn){btn.disabled=true;btn.dataset.t=btn.textContent;btn.textContent="…";}
   let res;
   try{
-    const r=await fetch("/api/apply-browser",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({url,label,answers:answersFor(),standing:standingFor(),resume_html:resumeHtml(),live:isLive()})});
+    const r=await fetch("/api/apply-browser",{method:"POST",headers:{"Content-Type":"application/json",...authHeaders()},body:JSON.stringify({url,label,job_id:(j&&j.id)||null,answers:answersFor(),standing:standingFor(),resume_html:resumeHtml(),live:isLive()})});
     res=await r.json();
   }catch(e){if(btn){btn.disabled=false;btn.textContent=btn.dataset.t||"⚡ Auto";}return toast("Browser backend unavailable");}
   if(btn){btn.disabled=false;btn.textContent=btn.dataset.t||"⚡ Auto";}
+  loadActivity();  // reflect whatever the agent just did
   const uf=((res&&res.unfilled_required)||[]).filter(u=>u.label&&u.label.length>3&&!/^\(/.test(u.label));
   if(res.status==="submitted"){setState(url,"submitted",j,{resume_html:resumeHtml()});renderAll();return toast("Submitted ✓ — résumé saved");}
   if(uf.length)return askMissing(url,label,uf);
@@ -598,7 +623,7 @@ window.addEventListener("hashchange",viewFromHash);
 viewFromHash();
 if(window.TailorFilters)TailorFilters.mount("dashFilterBar",()=>refresh());
 refresh();
-loadActivity();
+syncLocalToServer().then(loadActivity);
 </script>
 </body>
 </html>

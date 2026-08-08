@@ -3897,9 +3897,31 @@ function signedIn(){return !!(AUTH.sess&&AUTH.sess.access_token);}
 function authHeaders(){return signedIn()?{"Authorization":"Bearer "+AUTH.sess.access_token}:{};}
 function authLoad(){try{AUTH.sess=JSON.parse(localStorage.getItem("tsenta_session")||"null");}catch(e){AUTH.sess=null;}}
 function authSave(){try{AUTH.sess?localStorage.setItem("tsenta_session",JSON.stringify(AUTH.sess)):localStorage.removeItem("tsenta_session");}catch(e){}}
+async function authFromHash(){
+  // Supabase magic-link redirects back with tokens in the URL fragment:
+  //   http://localhost:8765/#access_token=…&refresh_token=…&type=magiclink
+  const h=location.hash||"";
+  if(h.indexOf("access_token=")<0){
+    if(h.indexOf("error=")>=0){const p=new URLSearchParams(h.slice(1));toast("Sign-in link "+(p.get("error_description")||p.get("error")||"failed"));try{history.replaceState(null,"",location.pathname+location.search);}catch(e){}}
+    return false;
+  }
+  const p=new URLSearchParams(h.slice(1));
+  const at=p.get("access_token"),rt=p.get("refresh_token");
+  if(!at)return false;
+  let user=null;
+  try{if(AUTH.cfg&&AUTH.cfg.supabase_url){const r=await fetch(AUTH.cfg.supabase_url+"/auth/v1/user",{headers:{"apikey":AUTH.cfg.anon_key,"Authorization":"Bearer "+at}});if(r.ok)user=await r.json();}}catch(e){}
+  AUTH.sess={access_token:at,refresh_token:rt,user:user,at:Date.now()};
+  authSave();
+  try{history.replaceState(null,"",location.pathname+location.search);}catch(e){}   // strip tokens from the URL
+  updateAuthChip();hideAuthGate();
+  toast("Signed in as "+((user&&user.email)||"you"));
+  if(typeof syncProfileToCloud==="function")try{syncProfileToCloud();}catch(e){}
+  return true;
+}
 async function authInit(){
   authLoad();
   try{const r=await fetch("/api/config");AUTH.cfg=await r.json();}catch(e){AUTH.cfg={auth:false};}
+  await authFromHash();                     // catch a magic-link redirect before deciding on the gate
   updateAuthChip();
   if(AUTH.cfg&&AUTH.cfg.auth&&!signedIn())showAuthGate();
 }

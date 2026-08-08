@@ -384,21 +384,40 @@ def _score(job, myskills):
         sc = min(sc, 18)                                        # de-rank clearly non-technical roles
     return max(5, min(100, sc))
 
+US_ALIASES = {"us", "u.s.", "u.s.a.", "usa", "united states", "united states of america",
+              "america", "united-states", "usa."}
+
+def _loc_param(loc):
+    """Return (postgrest_op, pattern) for a location filter.
+    Fixes 'US' matching 'Austin': matches whole words, and treats US aliases as
+    equivalent (country name OR a ', XX' uppercase US state code)."""
+    low = loc.strip().lower()
+    if low in US_ALIASES:
+        # match 'US' / 'USA' / 'United States' as whole words (word-bounded → no 'Austin' false match);
+        # all US aliases collapse to the same pattern so 'US' and 'United States' return identical results
+        return "imatch", r"\y(usa?|united states)\y"
+    return "imatch", r"\y" + re.escape(loc.strip()) + r"\y"
+
 def jobs_query(qs, user="local"):
-    """LinkedIn-style ranked query over the stored jobs index."""
-    terms = [t.strip() for t in (qs.get("q") or [""])[0].lower().split(",") if len(t.strip()) >= 3]
-    loc = (qs.get("loc") or [""])[0].strip().lower()
-    remote = (qs.get("remote") or [""])[0] in ("1", "true")
-    hide_nospon = (qs.get("sponsor") or [""])[0] == "hide"
-    sort = (qs.get("sort") or ["match"])[0]
-    params = {"select": "*", "is_open": "eq.true",
-              "order": "posted_at.desc.nullslast", "limit": "500"}
-    if remote:
-        params["remote"] = "eq.true"
-    if hide_nospon:
-        params["sponsorship"] = "neq.no"
+    """Ranked, filterable query over the shared backend-crawled jobs index."""
+    def one(k, d=""): return (qs.get(k) or [d])[0].strip()
+    terms = [t.strip() for t in one("q").lower().split(",") if len(t.strip()) >= 2]
+    loc = one("loc"); vendor = one("vendor").lower(); etype = one("etype")
+    company = one("company"); days = one("days"); sort = one("sort", "match")
+    remote = one("remote") in ("1", "true")
+    spon = one("sponsor")                                   # '', 'hide', 'yes'
+    params = {"select": "*", "is_open": "eq.true", "order": "posted_at.desc.nullslast", "limit": "600"}
+    if remote:                          params["remote"] = "eq.true"
+    if spon == "hide":                  params["sponsorship"] = "neq.no"
+    elif spon == "yes":                 params["sponsorship"] = "eq.yes"
+    if etype:                           params["employment_type"] = f"ilike.*{etype}*"
+    if company:                         params["company_slug"] = f"ilike.*{company}*"
+    if vendor in ("greenhouse", "lever", "ashby"): params["vendor"] = f"eq.{vendor}"
+    if days.isdigit() and int(days) > 0:
+        cutoff = time.strftime("%Y-%m-%d", time.gmtime(time.time() - int(days) * 86400))
+        params["posted_at"] = f"gte.{cutoff}"
     if loc:
-        params["location"] = f"ilike.*{loc}*"
+        op, pat = _loc_param(loc); params["location"] = f"{op}.{pat}"
     if terms:
         params["or"] = "(" + ",".join(f"title.ilike.*{t}*" for t in terms) + ")"
     jobs = sb.select("jobs", params)
@@ -408,13 +427,20 @@ def jobs_query(qs, user="local"):
               {"user_id": f"eq.{user}", "select": "job_id,status,note"})}
     for j in jobs:
         j["score"] = _score(j, myskills)
-        st = states.get(j["id"])
-        j["status"] = st["status"] if st else "new"
+        st = states.get(j["id"]); j["status"] = st["status"] if st else "new"
+    def newkey(j): return (j.get("posted_at") or (j.get("first_seen_at") or "")[:10], j["score"])
     if sort == "new":
-        jobs.sort(key=lambda j: (j.get("posted_at") or "", j["score"]), reverse=True)
+        jobs.sort(key=newkey, reverse=True)
     else:
         jobs.sort(key=lambda j: (j["score"], j.get("posted_at") or ""), reverse=True)
-    return {"ok": True, "count": len(jobs), "jobs": jobs[:120]}
+    # facets from the matched set → drive the UI filter dropdowns
+    from collections import Counter
+    ets = Counter(j.get("employment_type") for j in jobs if j.get("employment_type"))
+    comps = Counter(j.get("company_slug") for j in jobs if j.get("company_slug"))
+    vends = sorted({j.get("vendor") for j in jobs if j.get("vendor")})
+    facets = {"employment_types": [e for e, _ in ets.most_common(12)],
+              "companies": [c for c, _ in comps.most_common(50)], "vendors": vends}
+    return {"ok": True, "count": len(jobs), "facets": facets, "jobs": jobs[:200]}
 
 class H(SimpleHTTPRequestHandler):
     def _json(self, code, obj):

@@ -342,6 +342,9 @@ body.split .wrap{max-width:none;width:calc(100% - 28px);margin:0 auto;display:fl
 .disco-preset button{border:1px solid var(--line);background:#fff;color:var(--ink-soft);border-radius:100px;padding:5px 12px;font-size:12.5px;font-weight:600;transition:all .13s}
 .disco-preset button:hover{border-color:var(--indigo);color:var(--indigo);transform:translateY(-1px)}
 .disco-row{display:flex;gap:9px;align-items:flex-end;flex-wrap:wrap;margin-top:10px}
+.disco-filters{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px}
+.disco-filters .in{font-size:12.5px;padding:7px 10px}
+.disco-filters select.in{cursor:pointer;padding-right:24px}
 .disco-prog{height:8px;border-radius:100px;background:#e4e2f5;overflow:hidden;margin:12px 0 6px}
 .disco-prog>i{display:block;height:100%;border-radius:100px;background:linear-gradient(90deg,var(--indigo),#3a7d5a);width:0;transition:width .4s ease}
 .disco-progtxt{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--ink-soft)}
@@ -3216,9 +3219,7 @@ function discoverDefault(){
 let _findView={sort:"match",remoteOnly:false,hideNoSpon:false};
 function setFindView(){
   if($("vSort"))_findView.sort=$("vSort").value;
-  if($("vRemote"))_findView.remoteOnly=$("vRemote").checked;
-  if($("vSpon"))_findView.hideNoSpon=$("vSpon").checked;
-  queryIndex();   // re-query the index so filters apply across the whole set, not just the loaded page
+  queryIndex();   // re-query so the sort applies across the whole set, not just the loaded page
 }
 function dateAgo(d){
   if(!d)return "";
@@ -3267,20 +3268,15 @@ function resultsTableHTML(){
     return `<div class="disco-empty"><div class="em-ic">${ic("compass")}</div><div class="big">No matches for these filters</div>Broaden the role, clear the location, or turn off a filter.</div>`;
   }
   const total=list.length;
-  if(_findView.remoteOnly)list=list.filter(r=>r.remote);
-  if(_findView.hideNoSpon)list=list.filter(r=>r.sponsor!=="no");
   if(_findView.sort==="new")list.sort((a,b)=>(b.date||"").localeCompare(a.date||"")||b.score-a.score);
-  else list.sort((a,b)=>b.score-a.score);
   const shown=list.length;
-  const cards=list.slice(0,60).map(r=>jobCard(r,(state.watch.results||[]).indexOf(r))).join("")
+  const cards=list.slice(0,80).map(r=>jobCard(r,(state.watch.results||[]).indexOf(r))).join("")
     || '<div class="disco-empty"><div class="big">Nothing matches those filters</div>Try turning a filter off.</div>';
   return `<div class="disco-bar">
-      <span class="count">${shown} match${shown!==1?"es":""}${shown<total?` <small>of ${total}</small>`:""}</span>
-      <select class="in disco-mini" id="vSort" onchange="setFindView()">
+      <span class="count">${shown} shown${total>shown?` <small>of ${total}+</small>`:""}</span>
+      <select class="in disco-mini" id="vSort" onchange="setFindView()" title="Sort order">
         <option value="match"${_findView.sort==="match"?" selected":""}>Best match</option>
-        <option value="new"${_findView.sort==="new"?" selected":""}>Newest</option></select>
-      <label class="disco-tog"><input type="checkbox" id="vRemote" onchange="setFindView()"${_findView.remoteOnly?" checked":""}> Remote</label>
-      <label class="disco-tog"><input type="checkbox" id="vSpon" onchange="setFindView()"${_findView.hideNoSpon?" checked":""}> Hide no-sponsor</label>
+        <option value="new"${_findView.sort==="new"?" selected":""}>Newest first</option></select>
       <span class="modeseg" title="How boldly to rewrite your resume before applying. Neither mode invents employers, titles, dates or degrees.">
         <span class="msl">Tailoring</span>
         <button class="${TAILOR_MODE!=="aggressive"?"on":""}" onclick="setTailorMode('honest')" title="Reword & reprioritize your real experience only — safe and faithful.">Honest</button>
@@ -3320,15 +3316,32 @@ function renderFind(){
       <input class="in" id="dRoles" placeholder="e.g. ai engineer, machine learning, ml" value="${esc(discoverDefault())}" onkeydown="if(event.key==='Enter')queryIndex()"></label>
     <div class="disco-preset">${presets}</div>
     <div class="disco-row">
-      <label class="fld" style="margin:0;flex:2;min-width:150px"><span>Location <span class="muted">(optional)</span></span>
-        <input class="in" id="dLoc" placeholder="remote, london…" onkeydown="if(event.key==='Enter')queryIndex()"></label>
+      <label class="fld" style="margin:0;flex:2;min-width:150px"><span>Location <span class="muted">(US = United States; whole-word match)</span></span>
+        <input class="in" id="dLoc" placeholder="united states, remote, london…" onkeydown="if(event.key==='Enter')queryIndex()"></label>
       <button class="btn accent" onclick="queryIndex()" style="height:40px;padding:0 18px">${ic("compass")} Search jobs</button>
     </div>
-    <p class="hint" style="margin:10px 0 0;font-size:12px">Served instantly from the backend index — no per-user crawl. New postings are added every hour.</p>
+    <div class="disco-filters">
+      <select class="in" id="fSource" onchange="queryIndex()" title="ATS source"><option value="">All sources</option><option>greenhouse</option><option>lever</option><option>ashby</option></select>
+      <select class="in" id="fEtype" onchange="queryIndex()" title="Employment type"><option value="">Any type</option></select>
+      <select class="in" id="fDays" onchange="queryIndex()" title="Date posted"><option value="">Any date</option><option value="1">Past 24 hours</option><option value="7">Past week</option><option value="30">Past month</option></select>
+      <select class="in" id="fSponSel" onchange="queryIndex()" title="Visa sponsorship"><option value="">Any sponsorship</option><option value="yes">Sponsors visa</option><option value="hide">Hide “no sponsorship”</option></select>
+      <input class="in" id="fCompanyInp" placeholder="Company…" onkeydown="if(event.key==='Enter')queryIndex()" style="max-width:150px">
+      <label class="disco-tog"><input type="checkbox" id="fRemoteChk" onchange="queryIndex()"> Remote only</label>
+      <button class="btn ghost sm" onclick="clearFindFilters()">Clear</button>
+    </div>
+    <p class="hint" style="margin:10px 0 0;font-size:12px">Served instantly from the backend index — no per-user crawl. New postings are added every hour. Employment type is only present on Lever/Ashby postings.</p>
   </div>
   <div id="findResults">${resultsTableHTML()}</div>`;
 }
+function clearFindFilters(){
+  ["dLoc","fCompanyInp"].forEach(id=>{if($(id))$(id).value="";});
+  ["fSource","fEtype","fDays","fSponSel"].forEach(id=>{if($(id))$(id).value="";});
+  if($("fRemoteChk"))$("fRemoteChk").checked=false;
+  _findView.sort="match";
+  queryIndex();
+}
 /* pull the shared, backend-crawled job index (Supabase) — filtered server-side, ranked to your profile */
+function _fv(id){const e=$(id);return e?(e.type==="checkbox"?e.checked:e.value.trim()):"";}
 async function queryIndex(){
   ensureWatch();
   const roles=($("dRoles")&&$("dRoles").value||"").trim();
@@ -3336,8 +3349,12 @@ async function queryIndex(){
   const params=new URLSearchParams();
   if(roles)params.set("q",roles.toLowerCase());
   if(loc)params.set("loc",loc);
-  if(_findView.remoteOnly)params.set("remote","1");
-  if(_findView.hideNoSpon)params.set("sponsor","hide");
+  if(_fv("fRemoteChk"))params.set("remote","1");
+  const spon=_fv("fSponSel");if(spon)params.set("sponsor",spon);
+  const src=_fv("fSource");if(src)params.set("vendor",src);
+  const et=_fv("fEtype");if(et)params.set("etype",et);
+  const days=_fv("fDays");if(days)params.set("days",days);
+  const co=_fv("fCompanyInp");if(co)params.set("company",co);
   params.set("sort",_findView.sort==="new"?"new":"match");
   const rr=$("findResults");if(rr)rr.innerHTML='<div class="skel"></div><div class="skel" style="animation-delay:.15s"></div><div class="skel" style="animation-delay:.3s"></div>';
   let d;
@@ -3357,7 +3374,15 @@ async function queryIndex(){
     added:queued.has(j.url)
   }));
   const cnt=$("idxCount");if(cnt)cnt.textContent=(d.count!=null?d.count:state.watch.results.length).toLocaleString();
+  populateFacet("fEtype",(d.facets&&d.facets.employment_types)||[],"Any type");
   renderFindResults();
+}
+function populateFacet(id,vals,anyLabel){
+  const sel=$(id);if(!sel)return;const cur=sel.value;
+  const opts=['<option value="">'+anyLabel+'</option>'].concat((vals||[]).map(v=>`<option${v===cur?" selected":""}>${esc(v)}</option>`));
+  // keep the current selection even if it's not in the new facet list
+  if(cur&&!(vals||[]).includes(cur))opts.push(`<option value="${esc(cur)}" selected>${esc(cur)}</option>`);
+  sel.innerHTML=opts.join("");
 }
 function renderFindResults(){const r=$("findResults");if(r)r.innerHTML=resultsTableHTML();}
 function discoverToggle(){ if(_discover.running){_discover.stop=true;const b=$("dBtn");if(b)b.textContent="Stopping…";} else discoverRun(); }
@@ -4086,7 +4111,7 @@ function intakeHandoff(){
 }
 window.intakeHandoff=intakeHandoff;
 authInit();
-Object.assign(window,{analyzeJD,autoTailor,clearTailoring,fetchJDCompany,addExp,addProj,buildResume,downloadResume,saveJSON,loadJSON,loadSample,buildSummaries,persist,aiRewriteSummary,openSettings,closeSettings,testOllama,saveSettings,addMemEntry,updateMemPreview,addSkillToProfile,addAllMissingSkills,addRespAsBullet,saveTailoredToProfile,toggleNotes,addNote,openImport,closeImport,importResumeFile,importResumePaste,importLinkedInCSV,addEdu,retailorStep3,boostFit,refreshFitSuggestions,toggleProjectShow,toggleExpBullet,openSystem,closeSystem,savePromptUI,resetPromptUI,copyData,downloadData,clearAllData,groupExpUI,flattenExp,regroupResumeRole,ungroupResumeRole,openReview,closeReview,reviewResume,applyReviewAction,tightenAll,fmt,addJob,switchJob,deleteJob,toggleSplitPane,tailorAllJobs,autoApplyJob,applyAllJobs,browserApply,wbSaveMissing,openFind,closeFind,addWatch,delWatch,scanWatch,addFound,applyFound,tailorJobAt,setTailorMode,previewThenApply,confirmApplyNow,editTailored,revealJDForm,renderJDPanel,go,cycleJob,toast,resetPanes,toggleSplitPane,editProfile,doneEditProfile,renderProfileView,queryIndex,renderFindResults,addCert,addCustomSection,addCustomFromView,addLink,startOnboarding,obNext,obPrev,obUpload,obFinish,obSetPref,obSetApply,obAddLink,obClose,wantLive,toggleAutoSubmit,renderAutoSubmitPill,addTopAndTailor,discoverToggle,discoverRun,setFindView,discoverPreset,openJobs,closeJobs,loadJobsFeed,selectJob,saveJobState,showAuthGate,renderGate,authSend,authVerify,authResend,signOut,saveAutoApply,saveStanding,syAddMemEntry,syDelMemEntry,syAddSkills,syRemoveSkill});
+Object.assign(window,{analyzeJD,autoTailor,clearTailoring,fetchJDCompany,addExp,addProj,buildResume,downloadResume,saveJSON,loadJSON,loadSample,buildSummaries,persist,aiRewriteSummary,openSettings,closeSettings,testOllama,saveSettings,addMemEntry,updateMemPreview,addSkillToProfile,addAllMissingSkills,addRespAsBullet,saveTailoredToProfile,toggleNotes,addNote,openImport,closeImport,importResumeFile,importResumePaste,importLinkedInCSV,addEdu,retailorStep3,boostFit,refreshFitSuggestions,toggleProjectShow,toggleExpBullet,openSystem,closeSystem,savePromptUI,resetPromptUI,copyData,downloadData,clearAllData,groupExpUI,flattenExp,regroupResumeRole,ungroupResumeRole,openReview,closeReview,reviewResume,applyReviewAction,tightenAll,fmt,addJob,switchJob,deleteJob,toggleSplitPane,tailorAllJobs,autoApplyJob,applyAllJobs,browserApply,wbSaveMissing,openFind,closeFind,addWatch,delWatch,scanWatch,addFound,applyFound,tailorJobAt,setTailorMode,previewThenApply,confirmApplyNow,editTailored,revealJDForm,renderJDPanel,go,cycleJob,toast,resetPanes,toggleSplitPane,editProfile,doneEditProfile,renderProfileView,queryIndex,renderFindResults,clearFindFilters,populateFacet,addCert,addCustomSection,addCustomFromView,addLink,startOnboarding,obNext,obPrev,obUpload,obFinish,obSetPref,obSetApply,obAddLink,obClose,wantLive,toggleAutoSubmit,renderAutoSubmitPill,addTopAndTailor,discoverToggle,discoverRun,setFindView,discoverPreset,openJobs,closeJobs,loadJobsFeed,selectJob,saveJobState,showAuthGate,renderGate,authSend,authVerify,authResend,signOut,saveAutoApply,saveStanding,syAddMemEntry,syDelMemEntry,syAddSkills,syRemoveSkill});
 
 </script>
 </body>

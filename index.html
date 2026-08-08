@@ -3201,7 +3201,7 @@ function saveSettings(){CLAUDE_KEY=$("setClaudeKey").value.trim();CLAUDE_MODEL=$
    ============================================================ */
 /* ============ FIND: watch public ATS job feeds, rank, feed the pipeline ============ */
 function ensureWatch(){state.watch=state.watch||{list:[],seen:{},results:[]};}
-function openFind(){ensureWatch();$("findModal").style.display="block";document.body.style.overflow="hidden";window.scrollTo(0,0);$("findModal").scrollTop=0;renderFind();}
+function openFind(){ensureWatch();$("findModal").style.display="block";document.body.style.overflow="hidden";window.scrollTo(0,0);$("findModal").scrollTop=0;renderFind();queryIndex();}
 function closeFind(){$("findModal").style.display="none";document.body.style.overflow="";}
 /* auto-discovery state (this run only) */
 let _discover={running:false,stop:false,scanned:0,total:0,found:0};
@@ -3218,7 +3218,7 @@ function setFindView(){
   if($("vSort"))_findView.sort=$("vSort").value;
   if($("vRemote"))_findView.remoteOnly=$("vRemote").checked;
   if($("vSpon"))_findView.hideNoSpon=$("vSpon").checked;
-  const rr=$("findResults");if(rr)rr.innerHTML=resultsTableHTML();
+  queryIndex();   // re-query the index so filters apply across the whole set, not just the loaded page
 }
 function dateAgo(d){
   if(!d)return "";
@@ -3243,6 +3243,8 @@ function jobCard(r,i){
         :'<span class="jtag sp-un" title="Not stated — sponsorship possible; confirm with employer">visa: not stated</span>';
   const rem=r.remote?`<span class="jtag rem">${ic("globe")} remote</span>`:"";
   const dt=ago?`<span class="jtag date">${ic("clock")} ${ago}</span>`:"";
+  const etype=r.employment_type?`<span class="jtag">${esc(r.employment_type)}</span>`:"";
+  const comp=r.compensation?`<span class="jtag">${esc(String(r.compensation).slice(0,32))}</span>`:"";
   const add=r.added?`<span class="jadd done">${ic("check")} queued</span>`:`<button class="jadd" onclick="addFound(${i})" title="Add to your tailoring queue">${ic("plus")} Add</button>`;
   const apply=`<button class="jadd japply" onclick="applyFound(${i},this)" title="Tailor your resume to this role (using the mode above), then auto-fill the application">${ic("bolt")} Apply</button>`;
   return `<div class="jcard${r.added?" isadded":""}">
@@ -3250,7 +3252,7 @@ function jobCard(r,i){
     <div class="jmain">
       <div class="jtitle">${esc(r.title)}${recent?'<span class="newtag">NEW</span>':""}</div>
       <div class="jco">${esc(r.company)}${r.location?" · "+esc(r.location):""}${r.vendor?" · "+esc(r.vendor):""}</div>
-      <div class="jmeta">${dt}${rem}${sp}</div>
+      <div class="jmeta">${dt}${rem}${etype}${comp}${sp}</div>
     </div>
     <div class="jright">
       <div class="mring" style="--p:${r.score};--c:${ringCol(r.score)}" title="${r.score}% match to your profile"><i></i><b>${r.score}<small>%</small></b></div>
@@ -3262,9 +3264,7 @@ function jobCard(r,i){
 function resultsTableHTML(){
   let list=(state.watch.results||[]).slice();
   if(!list.length){
-    return _discover.running
-      ? '<div class="skel"></div><div class="skel" style="animation-delay:.15s"></div><div class="skel" style="animation-delay:.3s"></div>'
-      : `<div class="disco-empty"><div class="em-ic">${ic("compass")}</div><div class="big">No matches yet</div>Pick a preset or type your role above, then hit <strong>Discover jobs</strong>.</div>`;
+    return `<div class="disco-empty"><div class="em-ic">${ic("compass")}</div><div class="big">No matches for these filters</div>Broaden the role, clear the location, or turn off a filter.</div>`;
   }
   const total=list.length;
   if(_findView.remoteOnly)list=list.filter(r=>r.remote);
@@ -3309,42 +3309,57 @@ const _PRESETS=[
   ["target","Product","product manager, product owner"],
   ["pen","Design","product designer, ux designer, ui designer"],
 ];
-function discoverPreset(kw){ if($("dRoles"))$("dRoles").value=kw; discoverRun(); }
+function discoverPreset(kw){ if($("dRoles"))$("dRoles").value=kw; queryIndex(); }
 function renderFind(){
   ensureWatch();
   const rows=state.watch.list.map((w,i)=>`<span class="chip">${esc(w.vendor)} · ${esc(w.slug)} <b style="cursor:pointer;opacity:.6" onclick="delWatch(${i})">×</b></span>`).join("")||'<span class="muted">none yet</span>';
   const presets=_PRESETS.map(p=>`<button onclick="discoverPreset('${p[2]}')">${ic(p[0])}${p[1]}</button>`).join("");
-  $("findBody").innerHTML=`<p class="hint" style="margin:0 0 14px">Live postings from <strong>~15,900 company career pages</strong> (Greenhouse · Lever · Ashby), ranked against your profile with posting date &amp; visa-sponsorship signal. Add the best — then <strong>Tailor all</strong> runs the pipeline.</p>
+  $("findBody").innerHTML=`<p class="hint" style="margin:0 0 14px"><strong id="idxCount">…</strong> live postings from the shared job index (Greenhouse · Lever · Ashby), crawled in the background and refreshed hourly — ranked against your profile. Filter, then <strong>Add</strong> or <strong>Apply</strong>.</p>
   <div class="disco-hero">
-    <label class="fld" style="margin:0"><span>What roles are you looking for? <span class="muted">— match job titles, comma-separated</span></span>
-      <input class="in" id="dRoles" placeholder="e.g. ai engineer, machine learning, ml" value="${esc(discoverDefault())}"></label>
+    <label class="fld" style="margin:0"><span>Filter by role <span class="muted">— match job titles, comma-separated</span></span>
+      <input class="in" id="dRoles" placeholder="e.g. ai engineer, machine learning, ml" value="${esc(discoverDefault())}" onkeydown="if(event.key==='Enter')queryIndex()"></label>
     <div class="disco-preset">${presets}</div>
     <div class="disco-row">
       <label class="fld" style="margin:0;flex:2;min-width:150px"><span>Location <span class="muted">(optional)</span></span>
-        <input class="in" id="dLoc" placeholder="remote, london…"></label>
-      <label class="fld" style="margin:0;flex:1;min-width:130px"><span>Sources</span>
-        <select class="in" id="dVendors"><option value="">All ATSes</option><option value="greenhouse">Greenhouse</option><option value="lever">Lever</option><option value="ashby">Ashby</option></select></label>
-      <button class="btn accent" id="dBtn" onclick="discoverToggle()" style="height:40px;padding:0 18px">${ic("compass")} Discover jobs</button>
+        <input class="in" id="dLoc" placeholder="remote, london…" onkeydown="if(event.key==='Enter')queryIndex()"></label>
+      <button class="btn accent" onclick="queryIndex()" style="height:40px;padding:0 18px">${ic("compass")} Search jobs</button>
     </div>
-    <div id="dProgWrap" style="display:none">
-      <div class="disco-prog"><i id="dBar"></i></div>
-      <div class="disco-progtxt" id="dProgTxt"></div>
-    </div>
-    <p class="hint" style="margin:10px 0 0;font-size:12px">Runs on your machine via the local engine · well-known companies scanned first · Stop anytime.</p>
+    <p class="hint" style="margin:10px 0 0;font-size:12px">Served instantly from the backend index — no per-user crawl. New postings are added every hour.</p>
   </div>
-  <details style="margin-bottom:14px"><summary class="muted" style="cursor:pointer;font-size:12.5px">Or watch specific companies manually</summary>
-    <div class="chips" style="margin:10px 0">${rows}</div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
-      <select class="in" id="fVendor" style="max-width:150px"><option value="greenhouse">Greenhouse</option><option value="lever">Lever</option><option value="ashby">Ashby</option></select>
-      <input class="in" id="fSlug" placeholder="company slug — e.g. stripe" style="flex:1;min-width:160px">
-      <button class="btn sm" onclick="addWatch()">+ Watch</button>
-      <button class="btn sm accent" onclick="scanWatch(this)">🔄 Scan watched</button>
-    </div>
-    <p class="hint" style="margin:0">Slug = the company in its careers URL: boards.greenhouse.io/<strong>slug</strong> · jobs.lever.co/<strong>slug</strong> · jobs.ashbyhq.com/<strong>slug</strong></p>
-  </details>
   <div id="findResults">${resultsTableHTML()}</div>`;
-  setDiscoverUI();
 }
+/* pull the shared, backend-crawled job index (Supabase) — filtered server-side, ranked to your profile */
+async function queryIndex(){
+  ensureWatch();
+  const roles=($("dRoles")&&$("dRoles").value||"").trim();
+  const loc=($("dLoc")&&$("dLoc").value||"").trim();
+  const params=new URLSearchParams();
+  if(roles)params.set("q",roles.toLowerCase());
+  if(loc)params.set("loc",loc);
+  if(_findView.remoteOnly)params.set("remote","1");
+  if(_findView.hideNoSpon)params.set("sponsor","hide");
+  params.set("sort",_findView.sort==="new"?"new":"match");
+  const rr=$("findResults");if(rr)rr.innerHTML='<div class="skel"></div><div class="skel" style="animation-delay:.15s"></div><div class="skel" style="animation-delay:.3s"></div>';
+  let d;
+  try{d=await fetch("/api/jobs?"+params.toString(),{headers:(typeof authHeaders==="function"?authHeaders():{})}).then(r=>r.json());}
+  catch(e){if(rr)rr.innerHTML='<div class="disco-empty"><div class="big">Couldn\'t reach the job index</div>Is the server running?</div>';return;}
+  if(!d||!d.ok){
+    state.watch.results=[];
+    if(rr)rr.innerHTML='<div class="disco-empty"><div class="em-ic">'+ic("compass")+'</div><div class="big">'+((d&&d.status==="no_db")?"Job index not set up yet":"No jobs in the index yet")+'</div>'+((d&&d.detail)||"The backend crawler fills this. Connect Supabase and run the workers (see CLOUD.md).")+'</div>';
+    const cnt=$("idxCount");if(cnt)cnt.textContent="0";
+    return;
+  }
+  const queued=new Set((state.jobs||[]).map(j=>j.applyUrl).filter(Boolean));
+  state.watch.results=(d.jobs||[]).map(j=>({
+    title:j.title||"", company:j.company_slug||j.company||"", location:j.location||"", url:j.url||"",
+    score:j.score||0, remote:!!j.remote, sponsor:j.sponsorship||"unknown", date:j.posted_at||"",
+    desc:j.description||"", vendor:j.vendor||"", department:j.department||"", employment_type:j.employment_type||"", compensation:j.compensation||"",
+    added:queued.has(j.url)
+  }));
+  const cnt=$("idxCount");if(cnt)cnt.textContent=(d.count!=null?d.count:state.watch.results.length).toLocaleString();
+  renderFindResults();
+}
+function renderFindResults(){const r=$("findResults");if(r)r.innerHTML=resultsTableHTML();}
 function discoverToggle(){ if(_discover.running){_discover.stop=true;const b=$("dBtn");if(b)b.textContent="Stopping…";} else discoverRun(); }
 function discoverTerms(){
   const raw=($("dRoles")&&$("dRoles").value||"").trim()||discoverDefault();
@@ -4071,7 +4086,7 @@ function intakeHandoff(){
 }
 window.intakeHandoff=intakeHandoff;
 authInit();
-Object.assign(window,{analyzeJD,autoTailor,clearTailoring,fetchJDCompany,addExp,addProj,buildResume,downloadResume,saveJSON,loadJSON,loadSample,buildSummaries,persist,aiRewriteSummary,openSettings,closeSettings,testOllama,saveSettings,addMemEntry,updateMemPreview,addSkillToProfile,addAllMissingSkills,addRespAsBullet,saveTailoredToProfile,toggleNotes,addNote,openImport,closeImport,importResumeFile,importResumePaste,importLinkedInCSV,addEdu,retailorStep3,boostFit,refreshFitSuggestions,toggleProjectShow,toggleExpBullet,openSystem,closeSystem,savePromptUI,resetPromptUI,copyData,downloadData,clearAllData,groupExpUI,flattenExp,regroupResumeRole,ungroupResumeRole,openReview,closeReview,reviewResume,applyReviewAction,tightenAll,fmt,addJob,switchJob,deleteJob,toggleSplitPane,tailorAllJobs,autoApplyJob,applyAllJobs,browserApply,wbSaveMissing,openFind,closeFind,addWatch,delWatch,scanWatch,addFound,applyFound,tailorJobAt,setTailorMode,previewThenApply,confirmApplyNow,editTailored,revealJDForm,renderJDPanel,go,cycleJob,toast,resetPanes,toggleSplitPane,editProfile,doneEditProfile,renderProfileView,addCert,addCustomSection,addCustomFromView,addLink,startOnboarding,obNext,obPrev,obUpload,obFinish,obSetPref,obSetApply,obAddLink,obClose,wantLive,toggleAutoSubmit,renderAutoSubmitPill,addTopAndTailor,discoverToggle,discoverRun,setFindView,discoverPreset,openJobs,closeJobs,loadJobsFeed,selectJob,saveJobState,showAuthGate,renderGate,authSend,authVerify,authResend,signOut,saveAutoApply,saveStanding,syAddMemEntry,syDelMemEntry,syAddSkills,syRemoveSkill});
+Object.assign(window,{analyzeJD,autoTailor,clearTailoring,fetchJDCompany,addExp,addProj,buildResume,downloadResume,saveJSON,loadJSON,loadSample,buildSummaries,persist,aiRewriteSummary,openSettings,closeSettings,testOllama,saveSettings,addMemEntry,updateMemPreview,addSkillToProfile,addAllMissingSkills,addRespAsBullet,saveTailoredToProfile,toggleNotes,addNote,openImport,closeImport,importResumeFile,importResumePaste,importLinkedInCSV,addEdu,retailorStep3,boostFit,refreshFitSuggestions,toggleProjectShow,toggleExpBullet,openSystem,closeSystem,savePromptUI,resetPromptUI,copyData,downloadData,clearAllData,groupExpUI,flattenExp,regroupResumeRole,ungroupResumeRole,openReview,closeReview,reviewResume,applyReviewAction,tightenAll,fmt,addJob,switchJob,deleteJob,toggleSplitPane,tailorAllJobs,autoApplyJob,applyAllJobs,browserApply,wbSaveMissing,openFind,closeFind,addWatch,delWatch,scanWatch,addFound,applyFound,tailorJobAt,setTailorMode,previewThenApply,confirmApplyNow,editTailored,revealJDForm,renderJDPanel,go,cycleJob,toast,resetPanes,toggleSplitPane,editProfile,doneEditProfile,renderProfileView,queryIndex,renderFindResults,addCert,addCustomSection,addCustomFromView,addLink,startOnboarding,obNext,obPrev,obUpload,obFinish,obSetPref,obSetApply,obAddLink,obClose,wantLive,toggleAutoSubmit,renderAutoSubmitPill,addTopAndTailor,discoverToggle,discoverRun,setFindView,discoverPreset,openJobs,closeJobs,loadJobsFeed,selectJob,saveJobState,showAuthGate,renderGate,authSend,authVerify,authResend,signOut,saveAutoApply,saveStanding,syAddMemEntry,syDelMemEntry,syAddSkills,syRemoveSkill});
 
 </script>
 </body>

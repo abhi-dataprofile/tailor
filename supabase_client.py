@@ -8,6 +8,7 @@ Credentials come from the environment, never from code or the browser
 is_configured() lets callers degrade gracefully when Supabase isn't set up
 yet, so the rest of the app keeps working.
 """
+import envload  # noqa: F401 — ensure .env is loaded no matter who imports us first
 import json, os, urllib.request, urllib.parse, urllib.error
 
 URL  = (os.environ.get("SUPABASE_URL") or "").rstrip("/")

@@ -20,7 +20,7 @@ Requires (optional dependency):
 Test safely (prepares + screenshots, never submits):
     python3 apply_browser.py --url "https://job-boards.greenhouse.io/acme/jobs/123"
 """
-import os, re, time, tempfile, argparse
+import os, re, time, tempfile, argparse, datetime
 
 OUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "applications_out")
 
@@ -165,22 +165,37 @@ def _answer_for(label, bank):
             return str(v)
     return None
 
+# leading-text patterns that are placeholders/hints, NOT real question labels.
+# (no bare '/' — this is spliced into a JS regex literal /^(...)/i)
+_PLACEHOLDERY = "type here|pick date|start typing|select|choose|search|e\\.g\\.|hello@|upload|attach|optional"
+
 def _label_text(el):
+    """Best-effort question label for a field. ATS forms (esp. Ashby/React) wrap the
+    question text several hashed-class <div>s above the input, so we walk ancestors for a
+    label/legend/labelly node before falling back to placeholder/name."""
     try:
         js = (
-          "e=>{const clean=s=>(s||'').replace(/[*\\u2731]/g,'').trim();"
+          "e=>{const clean=s=>(s||'').replace(/[*\\u2731]/g,'').replace(/\\s+/g,' ').trim();"
+          "const bad=/^(" + _PLACEHOLDERY + ")/i;"
           "if(e.getAttribute('aria-label'))return clean(e.getAttribute('aria-label'));"
           "if(e.labels&&e.labels[0]&&e.labels[0].innerText.trim())return clean(e.labels[0].innerText.split('\\n')[0]);"
           "const lb=e.getAttribute('aria-labelledby');"
           "if(lb){const l=document.getElementById(lb);if(l&&l.innerText.trim())return clean(l.innerText.split('\\n')[0]);}"
-          "let q=e.closest('.application-question');"
-          "if(!q)q=e.closest('.field,[data-qa=field],fieldset,.form-group,li');"
-          "if(q){const lab=q.querySelector('.application-label,legend,label,.label');"
-          "if(lab&&lab.innerText.trim())return clean(lab.innerText.split('\\n')[0]);"
-          "const t=(q.innerText||'').trim();if(t)return clean(t.split('\\n')[0]);}"
+          # walk up: a dedicated label/legend/title element inside a small-ish ancestor
+          "let node=e.parentElement;"
+          "for(let i=0;i<6&&node;i++,node=node.parentElement){"
+          "  const lab=node.querySelector('label,legend,.application-label,[class*=\"label\" i],[class*=\"title\" i],[class*=\"question\" i]');"
+          "  if(lab&&!lab.contains(e)&&lab.innerText.trim()){const t=clean(lab.innerText.split('\\n')[0]);if(t.length>2&&!bad.test(t))return t;}"
+          "}"
+          # else the leading text line of a compact ancestor (avoids grabbing a whole form)
+          "node=e.parentElement;"
+          "for(let i=0;i<6&&node;i++,node=node.parentElement){"
+          "  const n=node.querySelectorAll('input,textarea,select').length; if(n>2) break;"
+          "  const t=(node.innerText||'').trim(); if(!t) continue;"
+          "  const first=clean(t.split('\\n')[0]);"
+          "  if(first.length>3&&first.length<160&&!bad.test(first))return first;"
+          "}"
           "if(e.placeholder&&e.placeholder.trim())return clean(e.placeholder);"
-          "let ps=e.previousElementSibling;let n=0;"
-          "while(ps&&n<3){if(ps.innerText&&ps.innerText.trim())return clean(ps.innerText.split('\\n')[0]);ps=ps.previousElementSibling;n++;}"
           "if(e.name)return clean(e.name.replace(/[_\\-]+/g,' ').replace(/\\b\\w/g,c=>c.toUpperCase()));"
           "return '';}"
         )
@@ -237,6 +252,59 @@ def _group_label(r):
     except Exception:
         return ""
 
+_DATE_WORDS = re.compile(r"\b(date|start|available|availability|when can you (start|begin)|earliest|notice period)\b", re.I)
+
+def _looks_date(label, el):
+    if _DATE_WORDS.search(label or ""):
+        return True
+    ph = ""
+    try: ph = (el.evaluate("e=>(e.placeholder||'')+' '+(e.type||'')") or "").lower()
+    except Exception: pass
+    return "date" in ph or "mm/dd" in ph or "dd/mm" in ph or " date" in ph
+
+def _date_obj(ans):
+    """Turn a start-date answer into a concrete date. Handles explicit dates and relative
+    phrases ('2 weeks', 'immediately'). Returns a datetime.date, or None if there's no
+    answer to work from (so the caller asks instead of inventing a commitment)."""
+    s = (ans or "").strip()
+    if not s:
+        return None
+    low = s.lower()
+    today = datetime.date.today()
+    if any(w in low for w in ("immediat", "asap", "right away", "now", "available now", "anytime")):
+        return today
+    m = re.search(r"(\d+)\s*(day|week|month)", low)
+    if m:
+        n, unit = int(m.group(1)), m.group(2)
+        return today + datetime.timedelta(days=n * (1 if unit == "day" else 7 if unit == "week" else 30))
+    for fmt in ("%m/%d/%Y", "%Y-%m-%d", "%m-%d-%Y", "%d/%m/%Y", "%B %d, %Y", "%b %d, %Y", "%m/%d/%y", "%m/%d"):
+        try:
+            d = datetime.datetime.strptime(s, fmt).date()
+            return d.replace(year=today.year) if d.year == 1900 else d
+        except Exception:
+            continue
+    return today + datetime.timedelta(days=21)   # a present-but-unparseable answer → ~3 weeks out
+
+def _fill_date(el, dobj):
+    """Set a date field. Native <input type=date> wants ISO; custom text pickers (Ashby)
+    accept a typed MM/DD/YYYY. Returns True if a value landed."""
+    try:
+        native = el.evaluate("e=>e.type") == "date"
+    except Exception:
+        native = False
+    if native:
+        try: el.fill(dobj.strftime("%Y-%m-%d")); return True
+        except Exception: return False
+    v = dobj.strftime("%m/%d/%Y")
+    try:
+        el.click(); el.fill(""); el.type(v, delay=25)
+        try: el.press("Enter")
+        except Exception: pass
+        return bool(el.evaluate("e=>e.value"))
+    except Exception:
+        try: el.fill(v); return True
+        except Exception: return False
+
 def _fill_questions(page, bank):
     """Fill selects, radios and text fields by label from the answer bank.
     Returns a list of required questions it could NOT answer."""
@@ -282,12 +350,18 @@ def _fill_questions(page, bank):
                 unfilled.append({"label": qlabel or "(choice)", "type": "radio", "options": [_radio_label(r) for r in rs][:8]})
         except Exception:
             continue
-    # remaining text / textarea / url / number
-    for el in page.query_selector_all("input[type='text'],input:not([type]),textarea,input[type='url'],input[type='tel'],input[type='number']"):
+    # remaining text / textarea / url / number / date
+    for el in page.query_selector_all("input[type='text'],input:not([type]),textarea,input[type='url'],input[type='tel'],input[type='number'],input[type='date']"):
         try:
             if not el.is_visible(): continue
             if el.evaluate("e=>e.value"): continue
             label = _label_text(el); ans = _answer_for(label, bank)
+            if _looks_date(label, el):
+                dobj = _date_obj(ans)               # None unless we actually have an answer
+                if dobj and _fill_date(el, dobj): continue
+                if _is_required(el):
+                    unfilled.append({"label": label or "(date)", "type": "date"})
+                continue
             if ans:
                 el.fill(str(ans)); continue
             if _is_required(el):
@@ -411,6 +485,7 @@ def submit(job, answers, resume_html, standing=None, dry=True, headless=True, ti
                     break
             if not btn:
                 return {"ok": False, "status": "no_submit_button", "detail": "Couldn't find the submit button — apply manually.", **prepared}
+            url_before = page.url
             btn.click()
             page.wait_for_timeout(4000)
             if _has_captcha(page):
@@ -420,15 +495,34 @@ def submit(job, answers, resume_html, standing=None, dry=True, headless=True, ti
                 body = page.inner_text("body").lower()
             except Exception:
                 pass
-            ok = any(t in body for t in ["thank you", "application submitted", "received your application", "we received", "successfully"])
             page.screenshot(path=shot, full_page=True)
-            # We ALWAYS clicked submit here, so it was sent either way. `confirmed`
-            # says whether we actually SAW proof (a success page). Callers must not
-            # treat unconfirmed as a failure to retry — it was sent.
-            return {"ok": ok, "status": "submitted" if ok else "unconfirmed", "sent": True, "confirmed": ok,
+            ok = any(t in body for t in ["thank you", "application submitted", "received your application",
+                                         "we received", "your application has been", "successfully"])
+            if ok:
+                return {"ok": True, "status": "submitted", "sent": True, "confirmed": True,
+                        "confirm_url": page.url, "detail": "Submitted — confirmation page detected.", **prepared}
+            # No success text. Did the board actually accept it, or bounce us back to the
+            # form for validation? If the apply form is STILL here (with errors / same URL),
+            # it was NOT submitted — say so honestly instead of claiming "sent".
+            still_on_form = bool(page.query_selector("input[type='email'], input[name*='email' i], input[autocomplete='email']"))
+            errors = []
+            try:
+                errors = page.evaluate("""()=>[...document.querySelectorAll('[aria-invalid=\"true\"],[class*=error i],[class*=invalid i],[role=alert]')]
+                    .filter(e=>e.offsetParent&&(e.innerText||'').trim()).slice(0,5).map(e=>(e.innerText||'').trim().slice(0,90))""") or []
+            except Exception:
+                pass
+            if still_on_form and page.url == url_before:
+                rescan = _fill_questions(page, _bank) or unfilled_required
+                detail = "The form didn't go through — it still needs answers"
+                if errors:
+                    detail += ": " + "; ".join(dict.fromkeys(errors))[:180]
+                return {"ok": False, "status": "needs_answers", "detail": detail,
+                        **{**prepared, "unfilled_required": rescan}}
+            # Form is gone and URL changed, but no explicit confirmation text: it was sent,
+            # we just couldn't prove receipt. Honest "unconfirmed" (never claimed as applied).
+            return {"ok": False, "status": "unconfirmed", "sent": True, "confirmed": False,
                     "confirm_url": page.url,
-                    "detail": "Submitted — confirmation page detected." if ok
-                              else "Submitted, but no confirmation page detected — verify manually.", **prepared}
+                    "detail": "Submitted, but no confirmation page detected — verify manually.", **prepared}
         except Exception as e:
             return {"ok": False, "status": "browser_error", "detail": str(e)[:200]}
         finally:

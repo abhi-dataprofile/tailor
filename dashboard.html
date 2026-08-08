@@ -583,7 +583,7 @@ async function autoApply(url,btn){
   }catch(e){if(btn){btn.disabled=false;btn.textContent=btn.dataset.t||"⚡ Auto";}return toast("Browser backend unavailable");}
   if(btn){btn.disabled=false;btn.textContent=btn.dataset.t||"⚡ Auto";}
   loadActivity();  // reflect whatever the agent just did
-  const uf=((res&&res.unfilled_required)||[]).filter(u=>u.label&&u.label.length>3&&!/^\(/.test(u.label));
+  const uf=((res&&res.unfilled_required)||[]).map(u=>({...u,label:(u.label&&!/^\(/.test(u.label))?u.label:(u.name||"Additional required question")})).filter(u=>u.label);
   if(res.status==="submitted"){setState(url,"submitted",j,{resume_html:resumeHtml()});renderAll();return toast("Submitted ✓ — résumé saved");}
   if(uf.length)return askMissing(url,label,uf);
   if(res.status==="dry_prepared")return toast("Auto-filled ✓ — flip “Fill only → Fill & submit” above to send it automatically.");

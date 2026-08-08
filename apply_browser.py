@@ -171,19 +171,35 @@ def _label_text(el):
           "e=>{const clean=s=>(s||'').replace(/[*\\u2731]/g,'').trim();"
           "if(e.getAttribute('aria-label'))return clean(e.getAttribute('aria-label'));"
           "if(e.labels&&e.labels[0]&&e.labels[0].innerText.trim())return clean(e.labels[0].innerText.split('\\n')[0]);"
+          "const lb=e.getAttribute('aria-labelledby');"
+          "if(lb){const l=document.getElementById(lb);if(l&&l.innerText.trim())return clean(l.innerText.split('\\n')[0]);}"
           "let q=e.closest('.application-question');"
           "if(!q)q=e.closest('.field,[data-qa=field],fieldset,.form-group,li');"
           "if(q){const lab=q.querySelector('.application-label,legend,label,.label');"
           "if(lab&&lab.innerText.trim())return clean(lab.innerText.split('\\n')[0]);"
-          "const t=(q.innerText||'').trim();if(t)return clean(t.split('\\n')[0]);}return '';}"
+          "const t=(q.innerText||'').trim();if(t)return clean(t.split('\\n')[0]);}"
+          "if(e.placeholder&&e.placeholder.trim())return clean(e.placeholder);"
+          "let ps=e.previousElementSibling;let n=0;"
+          "while(ps&&n<3){if(ps.innerText&&ps.innerText.trim())return clean(ps.innerText.split('\\n')[0]);ps=ps.previousElementSibling;n++;}"
+          "if(e.name)return clean(e.name.replace(/[_\\-]+/g,' ').replace(/\\b\\w/g,c=>c.toUpperCase()));"
+          "return '';}"
         )
         return (el.evaluate(js) or "").strip()
     except Exception:
         return ""
 
 def _is_required(el):
+    """True only when the field is genuinely required. The asterisk/'required' check is
+    scoped to the field's OWN label (not a big ancestor div), so one '*' somewhere on the
+    page no longer marks every field required — which used to block valid submits."""
     try:
-        return bool(el.evaluate("e=>e.required||e.getAttribute('aria-required')==='true'||/[*]/.test((e.closest('[class*=question],[class*=field],.form-group,li,div')||{}).innerText||'')"))
+        return bool(el.evaluate("""e=>{
+          if(e.required||e.getAttribute('aria-required')==='true')return true;
+          const c=e.closest('.application-question,[class*=question],[class*=field],.form-group,fieldset,label,li');
+          if(c){const lbl=c.querySelector('label,legend,.label,.application-label');
+            const t=((lbl&&lbl.innerText)||'').slice(0,120);
+            if(/[*\\u2731]/.test(t)||/\\brequired\\b/i.test(t))return true;}
+          return false;}"""))
     except Exception:
         return False
 
@@ -275,7 +291,8 @@ def _fill_questions(page, bank):
             if ans:
                 el.fill(str(ans)); continue
             if _is_required(el):
-                unfilled.append({"label": label or "(text field)", "type": "text"})
+                hint = (el.evaluate("e=>e.placeholder||e.name||e.id||''") or "").replace("_", " ").strip()
+                unfilled.append({"label": label or hint or "(text field)", "type": "text", "name": hint})
         except Exception:
             continue
     # de-dup by label
@@ -378,6 +395,14 @@ def submit(job, answers, resume_html, standing=None, dry=True, headless=True, ti
             prepared = {"filled": filled, "resume_attached": attached, "screenshot": shot, "unfilled_required": unfilled_required}
             if not live:
                 return {"ok": True, "status": "dry_prepared", "detail": "Form prepared (not submitted).", **prepared}
+            # HONEST GATE: never click submit while REQUIRED questions are unanswered.
+            # Submitting a half-filled form (then reporting "sent") is the faking we refuse
+            # to do — surface exactly what's missing so it can be answered, then finish.
+            if unfilled_required:
+                return {"ok": False, "status": "needs_answers",
+                        "detail": "Not submitted — " + str(len(unfilled_required)) +
+                                  " required question(s) still need answers. Fill them and it'll submit.",
+                        **prepared}
             # LIVE submit
             btn = None
             for sel in pack["submit"]:

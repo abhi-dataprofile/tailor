@@ -3691,7 +3691,7 @@ async function browserApply(idx,btn,forceLive){
   try{const r=await fetch("/api/apply-browser",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({url:j.applyUrl,label:jobLabel(j,idx),answers:ans,standing:standing,resume_html:resume,live:live})});res=await r.json();}
   catch(e){if(btn){btn.disabled=false;btn.innerHTML=btn.dataset.t;}toast("Browser backend unavailable — start it (see SETUP.md)");return;}
   if(btn){btn.disabled=false;btn.innerHTML=btn.dataset.t;}
-  const uf=((res&&res.unfilled_required)||[]).filter(u=>u.label&&u.label.length>3&&!/^\(/.test(u.label));
+  const uf=((res&&res.unfilled_required)||[]).map(u=>({...u,label:(u.label&&!/^\(/.test(u.label))?u.label:(u.name||"Additional required question")})).filter(u=>u.label);
   if(res.status==="submitted"){j.applied={ok:true,status:"submitted",at:new Date().toLocaleString(),resume_html:resume,answers:standing};persist();renderJobTabs();toast("Application submitted ✓ — résumé saved to this job");return;}
   if(uf.length)return wbAskMissing(j.applyUrl,jobLabel(j,idx),uf,idx);
   if(res.status==="dry_prepared")return toast("Auto-filled the form ✓ — turn on auto-submit (Setup → How we apply → Review off) to send it automatically.");

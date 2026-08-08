@@ -3846,7 +3846,7 @@ function renderProfileView(){
           ${linkChips}
         </div>
       </div>
-      <div class="pv-id-right"><div class="pv-pct"><b>${pct}%</b> complete</div><button class="btn sm" onclick="editProfile('basics')">Edit →</button></div>
+      <div class="pv-id-right"><div class="pv-pct"><b>${pct}%</b> complete</div><button class="btn sm accent" onclick="startOnboarding()" title="Upload your résumé — we parse it and fill your profile"><svg class="ic" viewBox="0 0 24 24"><path d="M12 16V4"/><path d="M8 8l4-4 4 4"/><path d="M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg> Import résumé</button><button class="btn sm" onclick="editProfile('basics')">Edit →</button></div>
     </div>
     <div class="pv-eyebrow" style="margin-top:22px">Profile details</div>
     <div class="pv-grid">
@@ -3918,12 +3918,21 @@ async function authFromHash(){
   if(typeof syncProfileToCloud==="function")try{syncProfileToCloud();}catch(e){}
   return true;
 }
+function afterSignIn(){
+  // a freshly signed-in user with an empty profile → guide them to upload a résumé
+  try{
+    if(typeof hasProfileData==="function" && !hasProfileData()){
+      setTimeout(()=>{const o=$("onboard");if(o&&getComputedStyle(o).display==="none"&&typeof startOnboarding==="function")startOnboarding();},450);
+    }
+  }catch(e){}
+}
 async function authInit(){
   authLoad();
   try{const r=await fetch("/api/config");AUTH.cfg=await r.json();}catch(e){AUTH.cfg={auth:false};}
-  await authFromHash();                     // catch a magic-link redirect before deciding on the gate
+  const viaLink=await authFromHash();       // catch a magic-link redirect before deciding on the gate
   updateAuthChip();
   if(AUTH.cfg&&AUTH.cfg.auth&&!signedIn())showAuthGate();
+  else if(viaLink)afterSignIn();
 }
 function showAuthGate(){const g=$("authGate");if(g){g.style.display="flex";renderGate("email");}}
 function hideAuthGate(){const g=$("authGate");if(g)g.style.display="none";}
@@ -3970,7 +3979,7 @@ async function authVerify(){
     AUTH.sess={access_token:j.access_token,refresh_token:j.refresh_token,user:j.user,at:Date.now()};
     authSave();hideAuthGate();updateAuthChip();
     toast("Signed in as "+((j.user&&j.user.email)||"you"));
-    syncProfileToCloud();
+    syncProfileToCloud();afterSignIn();
   }catch(e){renderGate("code","That code didn't work — resend and try again");}
 }
 function authResend(){

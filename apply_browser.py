@@ -151,6 +151,30 @@ ANSWER_KEYS = [
  ("disability", ["disab"]),
  ("how_heard", ["how did you hear"]),
 ]
+_FP_STOP = set((
+    "a an the of to in on for and or is are do does did you your we our will would can could "
+    "have has had be been being with this that these those please provide enter select choose "
+    "any about at as it if not no yes require required currently company role position job "
+    "application applicant candidate work working "
+    "why what how when where which who whom many much are"   # interrogatives/fillers, not salient
+).split())
+
+def _fp(text):
+    """Salient-token fingerprint of a question: lowercase, drop stopwords, light-stem — so
+    reworded questions ('Why interested in this role?' / 'What interests you about the position?')
+    collapse to overlapping token sets."""
+    out = set()
+    for w in re.findall(r"[a-z]+", (text or "").lower()):
+        if len(w) < 3 or w in _FP_STOP:
+            continue
+        if w.endswith("ies") and len(w) > 4:   w = w[:-3] + "y"
+        elif w.endswith("ing") and len(w) > 5: w = w[:-3]
+        elif w.endswith("ed") and len(w) > 4:  w = w[:-2]
+        elif w.endswith("es") and len(w) > 4:  w = w[:-2]
+        elif w.endswith("s") and not w.endswith("ss") and len(w) > 3: w = w[:-1]
+        out.add(w)
+    return out
+
 def _answer_for(label, bank):
     low = (label or "").lower()
     for key, syns in ANSWER_KEYS:
@@ -159,10 +183,26 @@ def _answer_for(label, bank):
                 v = (bank or {}).get(key)
                 if v not in (None, ""):
                     return str(v)
-    # user-provided answers to previously-missed questions (keyed by label substring)
-    for k, v in ((bank or {}).get("_custom") or {}).items():
-        if k and v and k.lower()[:40] in low:
+    # previously-answered novel questions. Match by exact-ish prefix OR salient-token overlap,
+    # so a reworded question on a different board still reuses the answer you already gave.
+    custom = (bank or {}).get("_custom") or {}
+    qf = _fp(label)
+    for k, v in custom.items():
+        if not (k and v):
+            continue
+        kl = k.lower()
+        if kl[:40] in low or (low and low[:40] in kl):
             return str(v)
+        kf = _fp(k)
+        if kf and qf:
+            shared = qf & kf
+            ns, mn = len(shared), min(len(qf), len(kf))
+            if ns >= 2 and ns >= 0.6 * mn:
+                return str(v)
+            # short questions: every salient token of the shorter side matches, and it's a
+            # substantial word (avg length >= 5) — enough signal to reuse the answer.
+            if ns >= 1 and ns == mn and mn <= 2 and sum(len(t) for t in shared) / ns >= 5:
+                return str(v)
     return None
 
 # leading-text patterns that are placeholders/hints, NOT real question labels.

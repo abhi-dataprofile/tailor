@@ -3946,12 +3946,15 @@ async function authFromHash(){
   if(typeof syncProfileToCloud==="function")try{syncProfileToCloud();}catch(e){}
   return true;
 }
-function afterSignIn(){
-  // a freshly signed-in user with an empty profile → guide them to upload a résumé
+async function afterSignIn(){
+  // First pull any existing profile + answer bank from the cloud (returning user on a new
+  // device). Only fall back to onboarding if there's genuinely no profile anywhere.
+  let wasEmpty=false;
+  try{wasEmpty=await pullProfile();}catch(e){}
   try{
     if(typeof hasProfileData==="function" && !hasProfileData()){
       setTimeout(()=>{const o=$("onboard");if(o&&getComputedStyle(o).display==="none"&&typeof startOnboarding==="function")startOnboarding();},450);
-    }
+    }else if(wasEmpty){toast("Welcome back — profile & saved answers restored");}
   }catch(e){}
 }
 async function authInit(){
@@ -3961,6 +3964,7 @@ async function authInit(){
   updateAuthChip();
   if(AUTH.cfg&&AUTH.cfg.auth&&!signedIn())showAuthGate();
   else if(viaLink)afterSignIn();
+  else if(signedIn())pullProfile();   // already signed in → keep the answer bank synced on load
 }
 function showAuthGate(){const g=$("authGate");if(g){g.style.display="flex";renderGate("email");}}
 function hideAuthGate(){const g=$("authGate");if(g)g.style.display="none";}
@@ -4027,6 +4031,37 @@ async function syncProfileToCloud(){
     skills:splitList(state.skills),memory:state.memory||{},
     data:{exp:state.exp,proj:state.proj,education:state.education,certs:state.certs||[],custom_sections:state.customSections||[],address:state.address||{},links:state.links||[],phone:state.phone||"",standing:state.standing||{},auto_apply:state.autoApply||{}}};
   try{await fetch("/api/profile",{method:"POST",headers:{"Content-Type":"application/json",...authHeaders()},body:JSON.stringify(payload)});}catch(e){}
+}
+/* pull the profile + answer bank down from the cloud so answers survive a new device /
+   cleared browser. The answer bank is merged (cloud ∪ local; your local edits win on
+   conflict; _custom unioned). A device with no profile yet gets the whole thing restored. */
+async function pullProfile(){
+  if(!signedIn())return false;
+  let d;try{d=await fetch("/api/profile",{headers:authHeaders()}).then(r=>r.json());}catch(e){return false;}
+  if(!d||!d.ok||!d.profile)return false;
+  const p=d.profile,data=p.data||{};
+  const localEmpty=!(typeof hasProfileData==="function"&&hasProfileData());
+  // always union the answer bank
+  const cs=data.standing||{};state.standing=state.standing||{};
+  const merged=Object.assign({},cs,state.standing);
+  merged._custom=Object.assign({},cs._custom||{},state.standing._custom||{});
+  state.standing=merged;
+  // fresh device → restore the full profile from the cloud
+  if(localEmpty){
+    if(p.name)state.name=p.name;if(p.email)state.email=p.email;if(p.title)state.title=p.title;
+    if(p.contact)state.contact=p.contact;if(p.summary)state.summary=p.summary;
+    if(p.skills&&p.skills.length)state.skills=Array.isArray(p.skills)?p.skills.join(", "):p.skills;
+    if(p.memory)state.memory=p.memory;
+    if(data.exp)state.exp=data.exp;if(data.proj)state.proj=data.proj;
+    if(data.education)state.education=data.education;if(data.certs)state.certs=data.certs;
+    if(data.custom_sections)state.customSections=data.custom_sections;
+    if(data.address)state.address=data.address;if(data.links)state.links=data.links;
+    if(data.phone)state.phone=data.phone;if(data.auto_apply)state.autoApply=data.auto_apply;
+  }
+  persist();
+  try{hydrateProfile&&hydrateProfile();}catch(e){}
+  try{hydrateAutoApply&&hydrateAutoApply();}catch(e){}
+  return localEmpty;
 }
 const _STD_KNOWN=new Set(["work_authorized","needs_sponsorship","salary_expectation","years_experience","willing_to_relocate","notice_period"]);
 function saveAutoApply(){

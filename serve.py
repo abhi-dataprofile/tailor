@@ -814,7 +814,12 @@ class H(SimpleHTTPRequestHandler):
             try:
                 user = _req_user(self)
                 if self.path.startswith("/api/profile"):
-                    return self._json(200, {"ok": True, "profile": _profile(user)})
+                    # full profile incl. the `data` blob (standing answers, experience…) so a
+                    # new device can pull the answer bank back down. Distinct from _profile()
+                    # (the slim version jobs_query uses for matching).
+                    rows = sb.select("profiles", {"user_id": f"eq.{user}", "limit": "1",
+                            "select": "name,email,title,contact,summary,skills,memory,data,updated_at"})
+                    return self._json(200, {"ok": True, "profile": rows[0] if rows else {}})
                 qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
                 return self._json(200, jobs_query(qs, user))
             except Exception as e:

@@ -3275,15 +3275,16 @@ function resultsTableHTML(){
   return `<div class="disco-bar">
       <span class="count">${shown} shown${total>shown?` <small>of ${total}+</small>`:""}</span>
       <select class="in disco-mini" id="vSort" onchange="setFindView()" title="Sort order">
-        <option value="match"${_findView.sort==="match"?" selected":""}>Best match</option>
-        <option value="new"${_findView.sort==="new"?" selected":""}>Newest first</option></select>
+        <option value="relevant"${(_findView.sort||"relevant")==="relevant"?" selected":""}>Relevant &amp; recent</option>
+        <option value="new"${_findView.sort==="new"?" selected":""}>Newest first</option>
+        <option value="match"${_findView.sort==="match"?" selected":""}>Best match</option></select>
       <span class="modeseg" title="How boldly to rewrite your resume before applying. Neither mode invents employers, titles, dates or degrees.">
         <span class="msl">Tailoring</span>
         <button class="${TAILOR_MODE!=="aggressive"?"on":""}" onclick="setTailorMode('honest')" title="Reword & reprioritize your real experience only — safe and faithful.">Honest</button>
         <button class="${TAILOR_MODE==="aggressive"?"on":""}" onclick="setTailorMode('aggressive')" title="Bolder framing, mirror the posting's keywords, lead with the most relevant real experience.">Aggressive</button>
       </span>
       <button class="btn sm accent" onclick="addTopAndTailor()">${ic("bolt")} Add top 5 &amp; tailor</button>
-    </div>${cards}`;
+    </div>${cards}${_findMeta.hasMore?`<div style="text-align:center;padding:14px"><button class="btn" id="findMore" onclick="queryIndex((_findMeta.page||0)+1,true)">Load more jobs</button></div>`:""}`;
 }
 function setDiscoverUI(){
   const b=$("dBtn"),bar=$("dBar"),txt=$("dProgTxt"),wrap=$("dProgWrap");
@@ -3343,11 +3344,12 @@ function clearFindFilters(){
 }
 /* pull the shared, backend-crawled job index (Supabase) — filtered server-side, ranked to your profile */
 function _fv(id){const e=$(id);return e?(e.type==="checkbox"?e.checked:e.value.trim()):"";}
-async function queryIndex(){
-  ensureWatch();
+let _findMeta={page:0,hasMore:false,total:0};
+async function queryIndex(page,append){
+  ensureWatch();page=page||0;
+  const params=new URLSearchParams();
   const roles=($("dRoles")&&$("dRoles").value||"").trim();
   const loc=($("dLoc")&&$("dLoc").value||"").trim();
-  const params=new URLSearchParams();
   if(roles)params.set("q",roles.toLowerCase());
   if(loc)params.set("loc",loc);
   if(_fv("fRemoteChk"))params.set("remote","1");
@@ -3357,28 +3359,37 @@ async function queryIndex(){
   const et=_fv("fEtype");if(et)params.set("etype",et);
   const days=_fv("fDays");if(days)params.set("days",days);
   const co=_fv("fCompanyInp");if(co)params.set("company",co);
-  params.set("sort",_findView.sort==="new"?"new":"match");
-  const rr=$("findResults");if(rr)rr.innerHTML='<div class="skel"></div><div class="skel" style="animation-delay:.15s"></div><div class="skel" style="animation-delay:.3s"></div>';
+  params.set("sort",_findView.sort||"relevant");
+  params.set("page",page);
+  const rr=$("findResults");
+  if(rr&&!append)rr.innerHTML='<div class="skel"></div><div class="skel" style="animation-delay:.15s"></div><div class="skel" style="animation-delay:.3s"></div>';
+  const lm=$("findMore");if(lm&&append){lm.disabled=true;lm.textContent="Loading…";}
   let d;
   try{d=await fetch("/api/jobs?"+params.toString(),{headers:(typeof authHeaders==="function"?authHeaders():{})}).then(r=>r.json());}
-  catch(e){if(rr)rr.innerHTML='<div class="disco-empty"><div class="big">Couldn\'t reach the job index</div>Is the server running?</div>';return;}
+  catch(e){if(rr&&!append)rr.innerHTML='<div class="disco-empty"><div class="big">Couldn\'t reach the job index</div>Is the server running?</div>';return;}
   if(!d||!d.ok){
-    state.watch.results=[];
-    if(rr)rr.innerHTML='<div class="disco-empty"><div class="em-ic">'+ic("compass")+'</div><div class="big">'+((d&&d.status==="no_db")?"Job index not set up yet":"No jobs in the index yet")+'</div>'+((d&&d.detail)||"The backend crawler fills this. Connect Supabase and run the workers (see CLOUD.md).")+'</div>';
-    const cnt=$("idxCount");if(cnt)cnt.textContent="0";
+    if(!append){state.watch.results=[];if(rr)rr.innerHTML='<div class="disco-empty"><div class="em-ic">'+ic("compass")+'</div><div class="big">'+((d&&d.status==="no_db")?"Job index not set up yet":"No jobs in the index yet")+'</div>'+((d&&d.detail)||"The backend crawler fills this. Connect Supabase and run the workers (see CLOUD.md).")+'</div>';const cnt=$("idxCount");if(cnt)cnt.textContent="0";}
     return;
   }
   const queued=new Set((state.jobs||[]).map(j=>j.applyUrl).filter(Boolean));
-  state.watch.results=(d.jobs||[]).map(j=>({
-    title:j.title||"", company:j.company_slug||j.company||"", location:j.location||"", url:j.url||"",
+  const mapped=(d.jobs||[]).map(j=>({
+    jid:j.id, title:j.title||"", company:j.company_slug||j.company||"", location:j.location||"", url:j.url||"",
     score:j.score||0, remote:!!j.remote, sponsor:j.sponsorship||"unknown", date:j.posted_at||"",
-    desc:j.description||"", vendor:j.vendor||"", department:j.department||"", employment_type:j.employment_type||"", compensation:j.compensation||"",
+    desc:"", vendor:j.vendor||"", department:j.department||"", employment_type:j.employment_type||"", compensation:j.compensation||"", country:j.country||"",
     added:queued.has(j.url)
   }));
+  state.watch.results=append?(state.watch.results||[]).concat(mapped):mapped;
+  _findMeta={page:d.page||0,hasMore:!!d.has_more,total:d.count||0};
   const cnt=$("idxCount");if(cnt)cnt.textContent=(d.count!=null?d.count:state.watch.results.length).toLocaleString();
-  populateFacet("fEtype",(d.facets&&d.facets.employment_types)||[],"Any type");
-  populateFacet("fCountry",(d.facets&&d.facets.countries)||[],"Any country");
+  if(!append){populateFacet("fEtype",(d.facets&&d.facets.employment_types)||[],"Any type");populateFacet("fCountry",(d.facets&&d.facets.countries)||[],"Any country");}
   renderFindResults();
+}
+/* fetch a job's full description on demand (list is slim for speed) */
+async function ensureDesc(r){
+  if(r.desc&&r.desc.length>20)return r.desc;
+  if(!r.jid)return r.desc||"";
+  try{const d=await fetch("/api/job?id="+r.jid).then(x=>x.json());if(d&&d.ok&&d.job){r.desc=d.job.description||"";}}catch(e){}
+  return r.desc||"";
 }
 function populateFacet(id,vals,anyLabel){
   const sel=$(id);if(!sel)return;const cur=sel.value;
@@ -3576,12 +3587,13 @@ async function scanWatch(btn){
   toast(out.length?("Found "+out.length+" new posting"+(out.length!==1?"s":"")):"No new postings — all caught up");
   renderFind();
 }
-function addFound(i){
+async function addFound(i){
   ensureWatch();const r=state.watch.results[i];if(!r||r.added)return;
   if(state.jobs.length>=MAX_JOBS){toast("Job limit reached — delete a job first");return;}
+  const desc=await ensureDesc(r);
   snapshotJob();
   const j=newJob();
-  j.jd={...blankJD(),raw:(r.title+" at "+r.company+"\n"+(r.location?("Location: "+r.location+"\n"):"")+"\n"+r.desc),role:r.title.slice(0,70),company:r.company};
+  j.jd={...blankJD(),raw:(r.title+" at "+r.company+"\n"+(r.location?("Location: "+r.location+"\n"):"")+"\n"+desc),role:r.title.slice(0,70),company:r.company};
   j.applyUrl=r.url;
   state.jobs.push(j);
   r.added=true;state.watch.seen[r.url]=1;
@@ -3608,9 +3620,10 @@ async function applyFound(i,btn){
   let idx=state.jobs.findIndex(j=>j.applyUrl===r.url);
   if(idx<0){
     if(state.jobs.length>=MAX_JOBS){toast("Job limit reached — delete a job first");return;}
+    const desc=await ensureDesc(r);
     snapshotJob();
     const j=newJob();
-    j.jd={...blankJD(),raw:(r.title+" at "+r.company+"\n"+(r.location?("Location: "+r.location+"\n"):"")+"\n"+r.desc),role:r.title.slice(0,70),company:r.company};
+    j.jd={...blankJD(),raw:(r.title+" at "+r.company+"\n"+(r.location?("Location: "+r.location+"\n"):"")+"\n"+desc),role:r.title.slice(0,70),company:r.company};
     j.applyUrl=r.url;state.jobs.push(j);
     r.added=true;state.watch.seen[r.url]=1;
     idx=state.jobs.length-1;persist();renderJobTabs();renderFind();
@@ -3672,7 +3685,7 @@ async function addTopAndTailor(){
   ensureWatch();
   const top=(state.watch.results||[]).filter(r=>!r.added).slice(0,5);
   if(!top.length){toast("Nothing new to add");return;}
-  top.forEach(r=>{const i=state.watch.results.indexOf(r);if(state.jobs.length<MAX_JOBS)addFound(i);});
+  for(const r of top){const i=state.watch.results.indexOf(r);if(state.jobs.length<MAX_JOBS)await addFound(i);}
   closeFind();
   toast("Added "+top.length+" — starting the tailoring queue");
   tailorAllJobs();

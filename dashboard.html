@@ -182,15 +182,16 @@ a{color:var(--primary-tint)}
   <div class="view on" id="v-dash">
     <div class="filters">
       <input class="in search" id="fQ" placeholder="Search by title or keyword…" onkeydown="if(event.key==='Enter')refresh()">
-      <select class="in" id="fSort" onchange="renderAll()"><option value="match">Best match</option><option value="new">Newest</option></select>
+      <select class="in" id="fSort" onchange="refresh()"><option value="match">Relevant &amp; recent</option><option value="new">Newest</option></select>
       <button class="btn accent" id="btnRefresh" onclick="refresh()"><svg class="ic" viewBox="0 0 24 24"><polyline points="21 4 21 9 16 9"/><path d="M20 13a8 8 0 1 1-2.3-5.7L21 9"/></svg> Refresh matches</button>
     </div>
     <div class="filters filters-2">
-      <select class="in fchip" id="fDate" onchange="renderAll()" title="Posting date"><option value="">Any date</option><option value="1">Past 24 hours</option><option value="7">Past week</option><option value="30">Past month</option></select>
-      <input class="in fchip" id="fLoc" placeholder="Location…" oninput="renderAll()" style="min-width:150px">
-      <select class="in fchip" id="fCompany" onchange="renderAll()" title="Company"><option value="">All companies</option></select>
-      <select class="in fchip" id="fWork" onchange="renderAll()" title="Workplace"><option value="">Any workplace</option><option value="remote">Remote</option><option value="onsite">On-site</option></select>
-      <select class="in fchip" id="fVisa" onchange="renderAll()" title="Visa sponsorship"><option value="">Any sponsorship</option><option value="yes">Sponsors visa</option><option value="notno">Hide “no sponsorship”</option></select>
+      <select class="in fchip" id="fCountry" onchange="refresh()" title="Country — includes every state/city"><option value="">Any country</option></select>
+      <select class="in fchip" id="fDate" onchange="refresh()" title="Posting date"><option value="">Any date</option><option value="1">Past 24 hours</option><option value="7">Past week</option><option value="30">Past month</option></select>
+      <input class="in fchip" id="fLoc" placeholder="City / location…" onchange="refresh()" onkeydown="if(event.key==='Enter')refresh()" style="min-width:140px">
+      <input class="in fchip" id="fCompany" placeholder="Company…" onchange="refresh()" onkeydown="if(event.key==='Enter')refresh()" style="max-width:150px">
+      <select class="in fchip" id="fWork" onchange="refresh()" title="Workplace"><option value="">Any workplace</option><option value="remote">Remote</option><option value="onsite">On-site</option></select>
+      <select class="in fchip" id="fVisa" onchange="refresh()" title="Visa sponsorship"><option value="">Any sponsorship</option><option value="yes">Sponsors visa</option><option value="notno">Hide “no sponsorship”</option></select>
       <button class="btn ghost fclear" onclick="clearFilters()" title="Reset all filters">Clear</button>
       <label class="tog live-tog" title="Off = fill the form + screenshot only. On = actually click Submit." style="margin-left:auto;border-color:var(--fair)"><input type="checkbox" id="liveMode" onchange="onLiveToggle()"> <span id="liveTxt">Fill only</span></label>
     </div>
@@ -257,9 +258,19 @@ let JOBS=[],DB=false,STAB="all",_running=false;
 async function refresh(){
   if(_running)return;_running=true;$("btnRefresh").disabled=true;
   $("cards").innerHTML='<div class="skel"></div><div class="skel"></div><div class="skel"></div><div class="skel"></div><div class="skel"></div>';
-  try{const q=($("fQ").value||"").trim();
-    let r=await fetch("/api/jobs?sort=match"+(q?"&q="+encodeURIComponent(q):"")).then(x=>x.json()).catch(()=>({ok:false}));
-    if(r.ok){DB=true;$("srcTxt").textContent="job index · live";JOBS=(r.jobs||[]).map(j=>({...j,company:j.company_slug,desc:j.description}));}
+  try{
+    const p=new URLSearchParams();
+    const q=($("fQ").value||"").trim();if(q)p.set("q",q);
+    const loc=fval("fLoc");if(loc)p.set("loc",loc);
+    const ctry=fval("fCountry");if(ctry)p.set("country",ctry);
+    const work=fval("fWork");if(work==="remote")p.set("remote","1");
+    const visa=fval("fVisa");if(visa==="yes")p.set("sponsor","yes");else if(visa==="notno")p.set("sponsor","hide");
+    const days=fval("fDate");if(days)p.set("days",days);
+    const comp=fval("fCompany");if(comp)p.set("company",comp);
+    p.set("sort",($("fSort")&&$("fSort").value==="new")?"new":"relevant");
+    let r=await fetch("/api/jobs?"+p.toString()).then(x=>x.json()).catch(()=>({ok:false}));
+    if(r.ok){DB=true;$("srcTxt").textContent="job index · live";JOBS=(r.jobs||[]).map(j=>({...j,company:j.company_slug,desc:j.description}));
+      if(r.facets&&r.facets.countries)fillCountryFilter(r.facets.countries);}
     else{DB=false;$("srcTxt").textContent="live discovery";await discover(q);}
   }finally{_running=false;$("btnRefresh").disabled=false;$("prog").style.display="none";renderAll();}
 }
@@ -276,8 +287,8 @@ function visible(){let l=JOBS.slice();const q=($("fQ").value||"").trim().toLower
   if(q)l=l.filter(j=>((j.title||"")+" "+(j.company||"")).toLowerCase().includes(q));
   const loc=fval("fLoc").trim().toLowerCase();
   if(loc)l=l.filter(j=>(j.location||"").toLowerCase().includes(loc));
-  const co=fval("fCompany");
-  if(co)l=l.filter(j=>(j.company||"")===co);
+  const co=fval("fCompany").toLowerCase();
+  if(co)l=l.filter(j=>(j.company||"").toLowerCase().includes(co));
   const work=fval("fWork");
   if(work==="remote")l=l.filter(j=>j.remote);else if(work==="onsite")l=l.filter(j=>!j.remote);
   const visa=fval("fVisa");
@@ -288,13 +299,13 @@ function visible(){let l=JOBS.slice();const q=($("fQ").value||"").trim().toLower
   l=l.filter(j=>!STATE[j.url]||STATE[j.url].status==="saved");
   if($("fSort").value==="new")l.sort((a,b)=>String(b.date||b.posted_at||"").localeCompare(String(a.date||a.posted_at||""))||b.score-a.score);
   else l.sort((a,b)=>b.score-a.score);return l;}
-function fillCompanyFilter(){const sel=$("fCompany");if(!sel)return;const cur=sel.value;
-  const cos=[...new Set(JOBS.map(j=>j.company).filter(Boolean))].sort((a,b)=>String(a).localeCompare(String(b)));
-  sel.innerHTML='<option value="">All companies</option>'+cos.map(c=>`<option${c===cur?" selected":""}>${esc(c)}</option>`).join("");}
-function clearFilters(){["fQ","fLoc"].forEach(id=>{if($(id))$(id).value="";});["fDate","fCompany","fWork","fVisa"].forEach(id=>{if($(id))$(id).value="";});renderAll();}
+function fillCountryFilter(vals){const sel=$("fCountry");if(!sel)return;const cur=sel.value;
+  const opts=['<option value="">Any country</option>'].concat((vals||[]).map(c=>`<option${c===cur?" selected":""}>${esc(c)}</option>`));
+  if(cur&&!(vals||[]).includes(cur))opts.push(`<option value="${esc(cur)}" selected>${esc(cur)}</option>`);
+  sel.innerHTML=opts.join("");}
+function clearFilters(){["fQ","fLoc","fCompany"].forEach(id=>{if($(id))$(id).value="";});["fCountry","fDate","fWork","fVisa"].forEach(id=>{if($(id))$(id).value="";});refresh();}
 function renderAll(){renderCards();renderTable();if($("v-net").classList.contains("on"))renderNet();}
 function renderCards(){
-  fillCompanyFilter();
   const seen={},l=[];for(const j of visible()){const k=(j.company||"").toLowerCase();seen[k]=(seen[k]||0)+1;if(seen[k]<=2)l.push(j);if(l.length>=5)break;}
   const p=profile();$("matchSub").textContent=p.skills.length?`ranked against your ${p.skills.length} résumé skills`:"add skills in the workbench for real matching";
   if(!l.length){$("cards").innerHTML=`<div class="empty" style="grid-column:1/-1"><div class="big">No matches yet</div>Hit <b>Refresh matches</b> — or open the workbench and save your profile first.</div>`;return;}

@@ -398,15 +398,67 @@ def _loc_param(loc):
         return "imatch", r"\y(usa?|united states)\y"
     return "imatch", r"\y" + re.escape(loc.strip()) + r"\y"
 
+# slim column set for the list/scoring pool — deliberately excludes description & meta
+# (the big fields), so a page loads fast; descriptions are fetched only for the shown page.
+_SLIM = ("id,source_uid,vendor,company_slug,title,location,country,remote,url,"
+         "sponsorship,posted_at,first_seen_at,department,employment_type,compensation,skills")
+_POOL = 300      # rank within the most-recent N matching postings ("latest first") — fast
+_PAGE = 60
+
+def _recency_bonus(posted_at):
+    if not posted_at:
+        return 0
+    try:
+        days = (time.time() - time.mktime(time.strptime(posted_at[:10], "%Y-%m-%d"))) / 86400
+    except Exception:
+        return 0
+    if days <= 2:   return 25
+    if days <= 7:   return 16
+    if days <= 30:  return 8
+    if days <= 90:  return 3
+    return 0
+
+_POOL_CACHE = {}   # filter-key -> (expiry_ts, rows). Pool is user-independent, so it's shared.
+_POOL_TTL = 45     # seconds
+
+def _cached_pool(params):
+    key = json.dumps(params, sort_keys=True)
+    now = time.time()
+    hit = _POOL_CACHE.get(key)
+    if hit and hit[0] > now:
+        return hit[1]
+    rows = sb.select("jobs", params)
+    _POOL_CACHE[key] = (now + _POOL_TTL, rows)
+    if len(_POOL_CACHE) > 300:                                   # bound memory: drop expired
+        for k in [k for k, v in list(_POOL_CACHE.items()) if v[0] <= now]:
+            _POOL_CACHE.pop(k, None)
+    return rows
+
+_USER_CACHE = {}   # user -> (expiry, profile, {job_id:status})
+
+def _user_ctx(user):
+    now = time.time(); hit = _USER_CACHE.get(user)
+    if hit and hit[0] > now:
+        return hit[1], hit[2]
+    prof = _profile(user)
+    states = {r["job_id"]: r["status"] for r in
+              sb.select("user_jobs", {"user_id": f"eq.{user}", "select": "job_id,status"})}
+    _USER_CACHE[user] = (now + 30, prof, states)
+    return prof, states
+
 def jobs_query(qs, user="local"):
-    """Ranked, filterable query over the shared backend-crawled jobs index."""
+    """Fast, ranked, filterable, paginated query over the shared jobs index."""
     def one(k, d=""): return (qs.get(k) or [d])[0].strip()
     terms = [t.strip() for t in one("q").lower().split(",") if len(t.strip()) >= 2]
     loc = one("loc"); vendor = one("vendor").lower(); etype = one("etype")
-    country = one("country"); company = one("company"); days = one("days"); sort = one("sort", "match")
-    remote = one("remote") in ("1", "true")
-    spon = one("sponsor")                                   # '', 'hide', 'yes'
-    params = {"select": "*", "is_open": "eq.true", "order": "posted_at.desc.nullslast", "limit": "600"}
+    country = one("country"); company = one("company"); days = one("days")
+    sort = one("sort", "relevant"); remote = one("remote") in ("1", "true")
+    spon = one("sponsor")
+    try: page = max(0, int(one("page", "0")))
+    except Exception: page = 0
+    # pool = the most-recent matching postings, slim columns only (fast)
+    params = {"select": _SLIM, "is_open": "eq.true",
+              "order": "posted_at.desc.nullslast", "limit": str(_POOL)}
     if remote:                          params["remote"] = "eq.true"
     if spon == "hide":                  params["sponsorship"] = "neq.no"
     elif spon == "yes":                 params["sponsorship"] = "eq.yes"
@@ -415,35 +467,49 @@ def jobs_query(qs, user="local"):
     if vendor in ("greenhouse", "lever", "ashby"): params["vendor"] = f"eq.{vendor}"
     if country:                         params["country"] = f"eq.{country}"
     if days.isdigit() and int(days) > 0:
-        cutoff = time.strftime("%Y-%m-%d", time.gmtime(time.time() - int(days) * 86400))
-        params["posted_at"] = f"gte.{cutoff}"
+        params["posted_at"] = f"gte.{time.strftime('%Y-%m-%d', time.gmtime(time.time() - int(days)*86400))}"
     if loc:
         op, pat = _loc_param(loc); params["location"] = f"{op}.{pat}"
     if terms:
         params["or"] = "(" + ",".join(f"title.ilike.*{t}*" for t in terms) + ")"
-    jobs = sb.select("jobs", params)
-    prof = _profile(user)
+    pool = _cached_pool(params)   # user-independent filter result, cached briefly → fast pagination & multi-user
+    prof, states = _user_ctx(user)
     myskills = set((s or "").lower() for s in (prof.get("skills") or []))
-    states = {r["job_id"]: r for r in sb.select("user_jobs",
-              {"user_id": f"eq.{user}", "select": "job_id,status,note"})}
-    for j in jobs:
+    for j in pool:
         j["score"] = _score(j, myskills)
-        st = states.get(j["id"]); j["status"] = st["status"] if st else "new"
-    def newkey(j): return (j.get("posted_at") or (j.get("first_seen_at") or "")[:10], j["score"])
+        j["status"] = states.get(j["id"], "new")
     if sort == "new":
-        jobs.sort(key=newkey, reverse=True)
-    else:
-        jobs.sort(key=lambda j: (j["score"], j.get("posted_at") or ""), reverse=True)
-    # facets from the matched set → drive the UI filter dropdowns
+        pool.sort(key=lambda j: (j.get("posted_at") or "", j["score"]), reverse=True)
+    elif sort == "match":
+        pool.sort(key=lambda j: (j["score"], j.get("posted_at") or ""), reverse=True)
+    else:   # 'relevant' (default): accurate match, freshest first — a blend
+        pool.sort(key=lambda j: (j["score"] + _recency_bonus(j.get("posted_at")),
+                                 j.get("posted_at") or ""), reverse=True)
+    # facets from the whole matched pool
     from collections import Counter
-    ets = Counter(j.get("employment_type") for j in jobs if j.get("employment_type"))
-    comps = Counter(j.get("company_slug") for j in jobs if j.get("company_slug"))
-    ctry = Counter(j.get("country") for j in jobs if j.get("country"))
-    vends = sorted({j.get("vendor") for j in jobs if j.get("vendor")})
+    ets = Counter(j.get("employment_type") for j in pool if j.get("employment_type"))
+    comps = Counter(j.get("company_slug") for j in pool if j.get("company_slug"))
+    ctry = Counter(j.get("country") for j in pool if j.get("country"))
     facets = {"employment_types": [e for e, _ in ets.most_common(12)],
               "countries": [c for c, _ in ctry.most_common(40)],
-              "companies": [c for c, _ in comps.most_common(50)], "vendors": vends}
-    return {"ok": True, "count": len(jobs), "facets": facets, "jobs": jobs[:200]}
+              "companies": [c for c, _ in comps.most_common(50)],
+              "vendors": sorted({j.get("vendor") for j in pool if j.get("vendor")})}
+    total = len(pool)
+    start = page * _PAGE
+    page_jobs = pool[start:start + _PAGE]
+    # NOTE: descriptions are intentionally omitted from the list (they're the big field).
+    # The card doesn't need them; /api/job fetches the full description on demand at Add/Apply.
+    return {"ok": True, "count": total, "page": page, "size": _PAGE,
+            "has_more": start + _PAGE < total, "facets": facets, "jobs": page_jobs}
+
+def job_detail(qs):
+    """Full single job (with description) — fetched on demand when the user adds/applies."""
+    try: jid = int((qs.get("id") or ["0"])[0])
+    except Exception: jid = 0
+    if not jid:
+        return {"ok": False, "detail": "no id"}
+    rows = sb.select("jobs", {"select": "*", "id": f"eq.{jid}", "limit": "1"})
+    return {"ok": bool(rows), "job": rows[0] if rows else None}
 
 class H(SimpleHTTPRequestHandler):
     def _json(self, code, obj):
@@ -498,6 +564,12 @@ class H(SimpleHTTPRequestHandler):
                                     "billing": (billing.provider() if billing else None),
                                     "contacts": (contacts.available() if contacts else []),
                                     "plan": _user_plan(_req_user(self))})
+        if urllib.parse.urlparse(self.path).path == "/api/job":
+            if not (sb and sb.is_configured()):
+                return self._json(200, {"ok": False, "status": "no_db"})
+            qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            try: return self._json(200, job_detail(qs))
+            except Exception as e: return self._json(200, {"ok": False, "detail": str(e)[:160]})
         if self.path.startswith("/api/jobs") or self.path.startswith("/api/profile"):
             if not (sb and sb.is_configured()):
                 return self._json(200, {"ok": False, "status": "no_db",

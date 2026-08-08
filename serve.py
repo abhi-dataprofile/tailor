@@ -446,33 +446,54 @@ def _user_ctx(user):
     _USER_CACHE[user] = (now + 30, prof, states)
     return prof, states
 
+def _inlist(vals):
+    """PostgREST in.(...) with each value double-quoted (handles spaces/commas)."""
+    return "in.(" + ",".join('"' + v.replace('"', "") + '"' for v in vals) + ")"
+
+def _seniority(title):
+    t = (title or "").lower()
+    if re.search(r"\b(intern|internship)\b", t): return "intern"
+    if re.search(r"\b(senior|sr|staff|principal|lead|director|head|vp|architect|manager|distinguished)\b", t): return "experienced"
+    if re.search(r"\b(junior|jr|entry|associate|new grad|graduate|apprentice|early career)\b", t): return "entry"
+    return "mid"
+
 def jobs_query(qs, user="local"):
     """Fast, ranked, filterable, paginated query over the shared jobs index."""
     def one(k, d=""): return (qs.get(k) or [d])[0].strip()
+    def multi(k): v = one(k); return [x.strip() for x in v.split("|") if x.strip()] if v else []
     terms = [t.strip() for t in one("q").lower().split(",") if len(t.strip()) >= 2]
-    loc = one("loc"); vendor = one("vendor").lower(); etype = one("etype")
-    country = one("country"); company = one("company"); days = one("days")
+    loc = one("loc"); vendor = one("vendor").lower()
+    countries = multi("country"); companies = multi("company"); etypes = multi("etype")
+    workplace = [w.strip().lower() for w in one("workplace").split(",") if w.strip()]
+    jobtypes = [j.strip().lower() for j in one("jobtype").split(",") if j.strip()]
+    days = one("days"); mins = one("mins")
     sort = one("sort", "relevant"); remote = one("remote") in ("1", "true")
     spon = one("sponsor")
     try: page = max(0, int(one("page", "0")))
     except Exception: page = 0
-    # pool = the most-recent matching postings, slim columns only (fast)
     params = {"select": _SLIM, "is_open": "eq.true",
               "order": "posted_at.desc.nullslast", "limit": str(_POOL)}
-    if remote:                          params["remote"] = "eq.true"
     if spon == "hide":                  params["sponsorship"] = "neq.no"
     elif spon == "yes":                 params["sponsorship"] = "eq.yes"
-    if etype:                           params["employment_type"] = f"ilike.*{etype}*"
-    if company:                         params["company_slug"] = f"ilike.*{company}*"
+    if etypes:                          params["employment_type"] = _inlist(etypes)
+    if companies:                       params["company_slug"] = _inlist(companies) if len(companies) > 1 else f"ilike.*{companies[0]}*"
+    if countries:                       params["country"] = _inlist(countries)
     if vendor in ("greenhouse", "lever", "ashby"): params["vendor"] = f"eq.{vendor}"
-    if country:                         params["country"] = f"eq.{country}"
-    if days.isdigit() and int(days) > 0:
+    wset = set(w.replace("on-site", "onsite") for w in workplace)
+    if wset == {"remote"}:              params["remote"] = "eq.true"
+    elif wset == {"onsite"}:            params["remote"] = "eq.false"
+    elif remote:                        params["remote"] = "eq.true"
+    if mins.isdigit() and int(mins) > 0:
+        params["first_seen_at"] = f"gte.{time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(time.time() - int(mins)*60))}"
+    elif days.isdigit() and int(days) > 0:
         params["posted_at"] = f"gte.{time.strftime('%Y-%m-%d', time.gmtime(time.time() - int(days)*86400))}"
     if loc:
         op, pat = _loc_param(loc); params["location"] = f"{op}.{pat}"
     if terms:
         params["or"] = "(" + ",".join(f"title.ilike.*{t}*" for t in terms) + ")"
     pool = _cached_pool(params)   # user-independent filter result, cached briefly → fast pagination & multi-user
+    if jobtypes:                  # seniority/job-type is derived from the title, filtered here
+        pool = [j for j in pool if _seniority(j.get("title", "")) in jobtypes]
     prof, states = _user_ctx(user)
     myskills = set((s or "").lower() for s in (prof.get("skills") or []))
     for j in pool:

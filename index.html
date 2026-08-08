@@ -564,6 +564,7 @@ code{background:var(--card-3);color:#2f6a4a}
 ::-webkit-scrollbar-thumb{background:#d6d6cd;border:3px solid transparent;background-clip:content-box}
 
 </style>
+<script src="filters.js"></script>
 </head>
 <body>
 
@@ -3321,44 +3322,22 @@ function renderFind(){
         <input class="in" id="dLoc" placeholder="united states, remote, london…" onkeydown="if(event.key==='Enter')queryIndex()"></label>
       <button class="btn accent" onclick="queryIndex()" style="height:40px;padding:0 18px">${ic("compass")} Search jobs</button>
     </div>
-    <div class="disco-filters">
-      <select class="in" id="fCountry" onchange="queryIndex()" title="Country — includes every state/city in that country"><option value="">Any country</option></select>
-      <select class="in" id="fSource" onchange="queryIndex()" title="ATS source"><option value="">All sources</option><option>greenhouse</option><option>lever</option><option>ashby</option></select>
-      <select class="in" id="fEtype" onchange="queryIndex()" title="Employment type"><option value="">Any type</option></select>
-      <select class="in" id="fDays" onchange="queryIndex()" title="Date posted"><option value="">Any date</option><option value="1">Past 24 hours</option><option value="7">Past week</option><option value="30">Past month</option></select>
-      <select class="in" id="fSponSel" onchange="queryIndex()" title="Visa sponsorship"><option value="">Any sponsorship</option><option value="yes">Sponsors visa</option><option value="hide">Hide “no sponsorship”</option></select>
-      <input class="in" id="fCompanyInp" placeholder="Company…" onkeydown="if(event.key==='Enter')queryIndex()" style="max-width:150px">
-      <label class="disco-tog"><input type="checkbox" id="fRemoteChk" onchange="queryIndex()"> Remote only</label>
-      <button class="btn ghost sm" onclick="clearFindFilters()">Clear</button>
-    </div>
-    <p class="hint" style="margin:10px 0 0;font-size:12px">Served instantly from the backend index — no per-user crawl. New postings are added every hour. Employment type is only present on Lever/Ashby postings.</p>
+    <div id="findFilterBar" style="margin-top:12px"></div>
+    <p class="hint" style="margin:10px 0 0;font-size:12px">Served instantly from the backend index — no per-user crawl, refreshed hourly. Employment type is only on Lever/Ashby postings.</p>
   </div>
   <div id="findResults">${resultsTableHTML()}</div>`;
+  if(window.TailorFilters)TailorFilters.mount("findFilterBar",()=>queryIndex());
 }
-function clearFindFilters(){
-  ["dLoc","fCompanyInp"].forEach(id=>{if($(id))$(id).value="";});
-  ["fCountry","fSource","fEtype","fDays","fSponSel"].forEach(id=>{if($(id))$(id).value="";});
-  if($("fRemoteChk"))$("fRemoteChk").checked=false;
-  _findView.sort="match";
-  queryIndex();
-}
+function clearFindFilters(){ if(window.TailorFilters)TailorFilters.clearAll(); else queryIndex(); }
 /* pull the shared, backend-crawled job index (Supabase) — filtered server-side, ranked to your profile */
-function _fv(id){const e=$(id);return e?(e.type==="checkbox"?e.checked:e.value.trim()):"";}
 let _findMeta={page:0,hasMore:false,total:0};
 async function queryIndex(page,append){
   ensureWatch();page=page||0;
-  const params=new URLSearchParams();
+  const params=window.TailorFilters?TailorFilters.buildParams():new URLSearchParams();
   const roles=($("dRoles")&&$("dRoles").value||"").trim();
   const loc=($("dLoc")&&$("dLoc").value||"").trim();
   if(roles)params.set("q",roles.toLowerCase());
   if(loc)params.set("loc",loc);
-  if(_fv("fRemoteChk"))params.set("remote","1");
-  const spon=_fv("fSponSel");if(spon)params.set("sponsor",spon);
-  const src=_fv("fSource");if(src)params.set("vendor",src);
-  const ctry=_fv("fCountry");if(ctry)params.set("country",ctry);
-  const et=_fv("fEtype");if(et)params.set("etype",et);
-  const days=_fv("fDays");if(days)params.set("days",days);
-  const co=_fv("fCompanyInp");if(co)params.set("company",co);
   params.set("sort",_findView.sort||"relevant");
   params.set("page",page);
   const rr=$("findResults");
@@ -3381,7 +3360,7 @@ async function queryIndex(page,append){
   state.watch.results=append?(state.watch.results||[]).concat(mapped):mapped;
   _findMeta={page:d.page||0,hasMore:!!d.has_more,total:d.count||0};
   const cnt=$("idxCount");if(cnt)cnt.textContent=(d.count!=null?d.count:state.watch.results.length).toLocaleString();
-  if(!append){populateFacet("fEtype",(d.facets&&d.facets.employment_types)||[],"Any type");populateFacet("fCountry",(d.facets&&d.facets.countries)||[],"Any country");}
+  if(!append&&window.TailorFilters&&d.facets)TailorFilters.setFacets({countries:d.facets.countries||[],companies:d.facets.companies||[]});
   renderFindResults();
 }
 /* fetch a job's full description on demand (list is slim for speed) */
@@ -3390,13 +3369,6 @@ async function ensureDesc(r){
   if(!r.jid)return r.desc||"";
   try{const d=await fetch("/api/job?id="+r.jid).then(x=>x.json());if(d&&d.ok&&d.job){r.desc=d.job.description||"";}}catch(e){}
   return r.desc||"";
-}
-function populateFacet(id,vals,anyLabel){
-  const sel=$(id);if(!sel)return;const cur=sel.value;
-  const opts=['<option value="">'+anyLabel+'</option>'].concat((vals||[]).map(v=>`<option${v===cur?" selected":""}>${esc(v)}</option>`));
-  // keep the current selection even if it's not in the new facet list
-  if(cur&&!(vals||[]).includes(cur))opts.push(`<option value="${esc(cur)}" selected>${esc(cur)}</option>`);
-  sel.innerHTML=opts.join("");
 }
 function renderFindResults(){const r=$("findResults");if(r)r.innerHTML=resultsTableHTML();}
 function discoverToggle(){ if(_discover.running){_discover.stop=true;const b=$("dBtn");if(b)b.textContent="Stopping…";} else discoverRun(); }
@@ -4127,7 +4099,7 @@ function intakeHandoff(){
 }
 window.intakeHandoff=intakeHandoff;
 authInit();
-Object.assign(window,{analyzeJD,autoTailor,clearTailoring,fetchJDCompany,addExp,addProj,buildResume,downloadResume,saveJSON,loadJSON,loadSample,buildSummaries,persist,aiRewriteSummary,openSettings,closeSettings,testOllama,saveSettings,addMemEntry,updateMemPreview,addSkillToProfile,addAllMissingSkills,addRespAsBullet,saveTailoredToProfile,toggleNotes,addNote,openImport,closeImport,importResumeFile,importResumePaste,importLinkedInCSV,addEdu,retailorStep3,boostFit,refreshFitSuggestions,toggleProjectShow,toggleExpBullet,openSystem,closeSystem,savePromptUI,resetPromptUI,copyData,downloadData,clearAllData,groupExpUI,flattenExp,regroupResumeRole,ungroupResumeRole,openReview,closeReview,reviewResume,applyReviewAction,tightenAll,fmt,addJob,switchJob,deleteJob,toggleSplitPane,tailorAllJobs,autoApplyJob,applyAllJobs,browserApply,wbSaveMissing,openFind,closeFind,addWatch,delWatch,scanWatch,addFound,applyFound,tailorJobAt,setTailorMode,previewThenApply,confirmApplyNow,editTailored,revealJDForm,renderJDPanel,go,cycleJob,toast,resetPanes,toggleSplitPane,editProfile,doneEditProfile,renderProfileView,queryIndex,renderFindResults,clearFindFilters,populateFacet,addCert,addCustomSection,addCustomFromView,addLink,startOnboarding,obNext,obPrev,obUpload,obFinish,obSetPref,obSetApply,obAddLink,obClose,wantLive,toggleAutoSubmit,renderAutoSubmitPill,addTopAndTailor,discoverToggle,discoverRun,setFindView,discoverPreset,openJobs,closeJobs,loadJobsFeed,selectJob,saveJobState,showAuthGate,renderGate,authSend,authVerify,authResend,signOut,saveAutoApply,saveStanding,syAddMemEntry,syDelMemEntry,syAddSkills,syRemoveSkill});
+Object.assign(window,{analyzeJD,autoTailor,clearTailoring,fetchJDCompany,addExp,addProj,buildResume,downloadResume,saveJSON,loadJSON,loadSample,buildSummaries,persist,aiRewriteSummary,openSettings,closeSettings,testOllama,saveSettings,addMemEntry,updateMemPreview,addSkillToProfile,addAllMissingSkills,addRespAsBullet,saveTailoredToProfile,toggleNotes,addNote,openImport,closeImport,importResumeFile,importResumePaste,importLinkedInCSV,addEdu,retailorStep3,boostFit,refreshFitSuggestions,toggleProjectShow,toggleExpBullet,openSystem,closeSystem,savePromptUI,resetPromptUI,copyData,downloadData,clearAllData,groupExpUI,flattenExp,regroupResumeRole,ungroupResumeRole,openReview,closeReview,reviewResume,applyReviewAction,tightenAll,fmt,addJob,switchJob,deleteJob,toggleSplitPane,tailorAllJobs,autoApplyJob,applyAllJobs,browserApply,wbSaveMissing,openFind,closeFind,addWatch,delWatch,scanWatch,addFound,applyFound,tailorJobAt,setTailorMode,previewThenApply,confirmApplyNow,editTailored,revealJDForm,renderJDPanel,go,cycleJob,toast,resetPanes,toggleSplitPane,editProfile,doneEditProfile,renderProfileView,queryIndex,renderFindResults,clearFindFilters,addCert,addCustomSection,addCustomFromView,addLink,startOnboarding,obNext,obPrev,obUpload,obFinish,obSetPref,obSetApply,obAddLink,obClose,wantLive,toggleAutoSubmit,renderAutoSubmitPill,addTopAndTailor,discoverToggle,discoverRun,setFindView,discoverPreset,openJobs,closeJobs,loadJobsFeed,selectJob,saveJobState,showAuthGate,renderGate,authSend,authVerify,authResend,signOut,saveAutoApply,saveStanding,syAddMemEntry,syDelMemEntry,syAddSkills,syRemoveSkill});
 
 </script>
 </body>

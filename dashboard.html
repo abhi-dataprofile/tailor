@@ -185,14 +185,8 @@ a{color:var(--primary-tint)}
       <select class="in" id="fSort" onchange="refresh()"><option value="match">Relevant &amp; recent</option><option value="new">Newest</option></select>
       <button class="btn accent" id="btnRefresh" onclick="refresh()"><svg class="ic" viewBox="0 0 24 24"><polyline points="21 4 21 9 16 9"/><path d="M20 13a8 8 0 1 1-2.3-5.7L21 9"/></svg> Refresh matches</button>
     </div>
-    <div class="filters filters-2">
-      <select class="in fchip" id="fCountry" onchange="refresh()" title="Country — includes every state/city"><option value="">Any country</option></select>
-      <select class="in fchip" id="fDate" onchange="refresh()" title="Posting date"><option value="">Any date</option><option value="1">Past 24 hours</option><option value="7">Past week</option><option value="30">Past month</option></select>
-      <input class="in fchip" id="fLoc" placeholder="City / location…" onchange="refresh()" onkeydown="if(event.key==='Enter')refresh()" style="min-width:140px">
-      <input class="in fchip" id="fCompany" placeholder="Company…" onchange="refresh()" onkeydown="if(event.key==='Enter')refresh()" style="max-width:150px">
-      <select class="in fchip" id="fWork" onchange="refresh()" title="Workplace"><option value="">Any workplace</option><option value="remote">Remote</option><option value="onsite">On-site</option></select>
-      <select class="in fchip" id="fVisa" onchange="refresh()" title="Visa sponsorship"><option value="">Any sponsorship</option><option value="yes">Sponsors visa</option><option value="notno">Hide “no sponsorship”</option></select>
-      <button class="btn ghost fclear" onclick="clearFilters()" title="Reset all filters">Clear</button>
+    <div class="filters filters-2" style="align-items:flex-start">
+      <div id="dashFilterBar" style="flex:1"></div>
       <label class="tog live-tog" title="Off = fill the form + screenshot only. On = actually click Submit." style="margin-left:auto;border-color:var(--fair)"><input type="checkbox" id="liveMode" onchange="onLiveToggle()"> <span id="liveTxt">Fill only</span></label>
     </div>
     <div class="prog" id="prog" style="display:none"><span class="spin"></span><div class="bar"><i id="progBar"></i></div><span id="progTxt"></span></div>
@@ -222,6 +216,7 @@ a{color:var(--primary-tint)}
 
 <div class="toast" id="toast"></div>
 
+<script src="filters.js"></script>
 <script>
 const $=id=>document.getElementById(id);
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -259,18 +254,12 @@ async function refresh(){
   if(_running)return;_running=true;$("btnRefresh").disabled=true;
   $("cards").innerHTML='<div class="skel"></div><div class="skel"></div><div class="skel"></div><div class="skel"></div><div class="skel"></div>';
   try{
-    const p=new URLSearchParams();
+    const p=window.TailorFilters?TailorFilters.buildParams():new URLSearchParams();
     const q=($("fQ").value||"").trim();if(q)p.set("q",q);
-    const loc=fval("fLoc");if(loc)p.set("loc",loc);
-    const ctry=fval("fCountry");if(ctry)p.set("country",ctry);
-    const work=fval("fWork");if(work==="remote")p.set("remote","1");
-    const visa=fval("fVisa");if(visa==="yes")p.set("sponsor","yes");else if(visa==="notno")p.set("sponsor","hide");
-    const days=fval("fDate");if(days)p.set("days",days);
-    const comp=fval("fCompany");if(comp)p.set("company",comp);
     p.set("sort",($("fSort")&&$("fSort").value==="new")?"new":"relevant");
     let r=await fetch("/api/jobs?"+p.toString()).then(x=>x.json()).catch(()=>({ok:false}));
     if(r.ok){DB=true;$("srcTxt").textContent="job index · live";JOBS=(r.jobs||[]).map(j=>({...j,company:j.company_slug,desc:j.description}));
-      if(r.facets&&r.facets.countries)fillCountryFilter(r.facets.countries);}
+      if(window.TailorFilters&&r.facets)TailorFilters.setFacets({countries:r.facets.countries||[],companies:r.facets.companies||[]});}
     else{DB=false;$("srcTxt").textContent="live discovery";await discover(q);}
   }finally{_running=false;$("btnRefresh").disabled=false;$("prog").style.display="none";renderAll();}
 }
@@ -283,27 +272,21 @@ async function discover(q){const skills=profile().skills;
     if(d.next==null)break;offset=d.next;}
 }
 function fval(id){const el=$(id);return el?el.value:"";}
-function visible(){let l=JOBS.slice();const q=($("fQ").value||"").trim().toLowerCase();
+function visible(){let l=JOBS.slice();const S=(window.TailorFilters&&TailorFilters.state)||{};
+  const q=($("fQ").value||"").trim().toLowerCase();
   if(q)l=l.filter(j=>((j.title||"")+" "+(j.company||"")).toLowerCase().includes(q));
-  const loc=fval("fLoc").trim().toLowerCase();
-  if(loc)l=l.filter(j=>(j.location||"").toLowerCase().includes(loc));
-  const co=fval("fCompany").toLowerCase();
-  if(co)l=l.filter(j=>(j.company||"").toLowerCase().includes(co));
-  const work=fval("fWork");
-  if(work==="remote")l=l.filter(j=>j.remote);else if(work==="onsite")l=l.filter(j=>!j.remote);
-  const visa=fval("fVisa");
-  if(visa==="yes")l=l.filter(j=>(j.sponsor||j.sponsorship)==="yes");
-  else if(visa==="notno")l=l.filter(j=>(j.sponsor||j.sponsorship)!=="no");
-  const dsel=fval("fDate");
-  if(dsel){const md=+dsel;l=l.filter(j=>{const dt=Date.parse(String(j.date||j.posted_at||"")+"T00:00:00Z");return !isNaN(dt)&&(Date.now()-dt)/864e5<=md;});}
+  const cos=(S.companies||[]).map(c=>c.toLowerCase());
+  if(cos.length)l=l.filter(j=>cos.includes((j.company||"").toLowerCase()));
+  const wp=S.workplace||[];
+  if(wp.includes("Remote")&&!wp.includes("On-site"))l=l.filter(j=>j.remote);
+  else if(wp.includes("On-site")&&!wp.includes("Remote"))l=l.filter(j=>!j.remote);
+  if(S.sponsor==="yes")l=l.filter(j=>(j.sponsor||j.sponsorship)==="yes");
+  else if(S.sponsor==="hide")l=l.filter(j=>(j.sponsor||j.sponsorship)!=="no");
+  if(S.mins){const mm=+S.mins;l=l.filter(j=>{const dt=Date.parse(String(j.date||j.posted_at||"")+"T00:00:00Z");return !isNaN(dt)&&(Date.now()-dt)/6e4<=mm;});}
   l=l.filter(j=>!STATE[j.url]||STATE[j.url].status==="saved");
   if($("fSort").value==="new")l.sort((a,b)=>String(b.date||b.posted_at||"").localeCompare(String(a.date||a.posted_at||""))||b.score-a.score);
   else l.sort((a,b)=>b.score-a.score);return l;}
-function fillCountryFilter(vals){const sel=$("fCountry");if(!sel)return;const cur=sel.value;
-  const opts=['<option value="">Any country</option>'].concat((vals||[]).map(c=>`<option${c===cur?" selected":""}>${esc(c)}</option>`));
-  if(cur&&!(vals||[]).includes(cur))opts.push(`<option value="${esc(cur)}" selected>${esc(cur)}</option>`);
-  sel.innerHTML=opts.join("");}
-function clearFilters(){["fQ","fLoc","fCompany"].forEach(id=>{if($(id))$(id).value="";});["fCountry","fDate","fWork","fVisa"].forEach(id=>{if($(id))$(id).value="";});refresh();}
+function clearFilters(){if($("fQ"))$("fQ").value="";if(window.TailorFilters)TailorFilters.clearAll();else refresh();}
 function renderAll(){renderCards();renderTable();if($("v-net").classList.contains("on"))renderNet();}
 function renderCards(){
   const seen={},l=[];for(const j of visible()){const k=(j.company||"").toLowerCase();seen[k]=(seen[k]||0)+1;if(seen[k]<=2)l.push(j);if(l.length>=5)break;}
@@ -514,6 +497,7 @@ function showView(v,noHash){if(!$("v-"+v))v="dash";document.querySelectorAll(".v
 function viewFromHash(){const v=(location.hash||"").replace(/^#/,"");showView(v==="net"?"net":"dash",true);}
 window.addEventListener("hashchange",viewFromHash);
 viewFromHash();
+if(window.TailorFilters)TailorFilters.mount("dashFilterBar",()=>refresh());
 refresh();
 </script>
 </body>

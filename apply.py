@@ -31,13 +31,53 @@ import llm
 import ats_official
 from app_status import classify, SETTLED
 
-MAX_RETRIES = int(os.environ.get("APPLY_MAX_RETRIES", "3"))
+MAX_RETRIES    = int(os.environ.get("APPLY_MAX_RETRIES", "3"))
+CLAIM_TTL_MIN  = int(os.environ.get("APPLY_CLAIM_TTL_MIN", "15"))   # a 'filling' claim older than this = crashed worker → reclaimable
+DOMAIN_MIN_GAP = float(os.environ.get("APPLY_DOMAIN_GAP", "8"))     # min seconds between applies to the SAME board
 
 def _now():
     return datetime.datetime.now(datetime.timezone.utc)
 
 def _iso(dt):
     return dt.isoformat()
+
+_DOMAIN_LAST = {}
+
+def _throttle(url):
+    """Politeness / anti-hammer: keep a minimum gap between applies to the same board."""
+    try:
+        host = __import__("urllib.parse", fromlist=["urlparse"]).urlparse(url or "").netloc.lower()
+    except Exception:
+        host = ""
+    dom = ".".join(host.split(".")[-2:]) if host else ""
+    if not dom:
+        return
+    wait = DOMAIN_MIN_GAP - (time.time() - _DOMAIN_LAST.get(dom, 0))
+    if wait > 0:
+        time.sleep(wait)
+    _DOMAIN_LAST[dom] = time.time()
+
+def _claim(user_id, job_id):
+    """Atomically claim a job (move its application row to 'filling') so two overlapping
+    workers can't both apply. Returns True (claimed), False (someone else holds it or it's
+    settled), or None (claim column not present → caller uses the legacy dedup fallback)."""
+    try:
+        now = _now(); now_iso = _iso(now)
+        # win by CREATING the row (no row exists yet for this job)
+        created = sb.upsert("applications", [{"user_id": user_id, "job_id": job_id,
+                  "status": "filling", "claimed_at": now_iso, "human_in_loop": False}],
+                  on_conflict="user_id,job_id", update=False)
+        if created:
+            return True
+        # row exists — claim ONLY if it's retryable, or a stale 'filling' from a dead worker
+        cutoff = _iso(now - datetime.timedelta(minutes=CLAIM_TTL_MIN))
+        got = sb.update("applications",
+              {"user_id": f"eq.{user_id}", "job_id": f"eq.{job_id}",
+               "or": f"(status.eq.failed_transient,and(status.eq.filling,claimed_at.lt.{cutoff}))"},
+              {"status": "filling", "claimed_at": now_iso})
+        return bool(got)
+    except Exception:
+        return None   # e.g. claimed_at column not migrated yet → degrade to legacy dedup
 
 def submit_application(job, answers, resume_html, dry):
     """Pick the best available submission backend for this job:
@@ -198,6 +238,9 @@ def _record(user_id, job, res, ans, apply_id, blocked, resume_html=""):
 def apply_one(user_id, profile, job):
     apply_id = uuid.uuid4().hex
     if serve.already_applied(job["url"], apply_id):
+        # applied before (e.g. interactively) — settle the row instead of leaving it 'filling'
+        _record(user_id, job, {"ok": True, "status": "submitted", "sent": True, "confirmed": False,
+                "detail": "Already applied earlier — not re-submitting."}, {}, apply_id, [])
         return "already_applied"
     ans = builtins_from(profile)
     ans, blocked = fill_answers(job, profile, ans)
@@ -206,6 +249,7 @@ def apply_one(user_id, profile, job):
                 "detail": "Missing standing answers: " + "; ".join(blocked[:4])}, ans, apply_id, blocked)
         return "needs_review"
     resume = resume_for(user_id, job["id"], profile, job)
+    _throttle(job["url"])                    # keep a polite gap between hits on the same board
     res = submit_application(job, ans, resume, dry=bool(serve.DRY_RUN))
     _record(user_id, job, res, ans, apply_id, [], resume)
     return (res.get("backend", "?") + ":" + str(res.get("status")))
@@ -225,9 +269,16 @@ def run(user):
         for uj in ujs:
             if n >= cap:
                 break
-            if uj["job_id"] in done or (uj.get("score") or 0) < minsc:
+            jid = uj["job_id"]
+            if (uj.get("score") or 0) < minsc:
                 continue
-            jr = sb.select("jobs", {"id": f"eq.{uj['job_id']}", "select": "*"})
+            # ATOMIC CLAIM: move the row to 'filling' so a second (overlapping) worker skips it.
+            claimed = _claim(u["user_id"], jid)
+            if claimed is False:                    # settled, or held by another worker
+                continue
+            if claimed is None and jid in done:      # pre-migration fallback: legacy dedup
+                continue
+            jr = sb.select("jobs", {"id": f"eq.{jid}", "select": "*"})
             if not jr:
                 continue
             job = jr[0]
@@ -243,6 +294,13 @@ def run(user):
 def run_retry():
     """Re-attempt transient failures whose backoff has elapsed; report the manual queue."""
     now = _iso(_now())
+    # recover crashed workers: a 'filling' claim older than the TTL → back to retryable
+    try:
+        stale = _iso(_now() - datetime.timedelta(minutes=CLAIM_TTL_MIN))
+        sb.update("applications", {"status": "eq.filling", "claimed_at": f"lt.{stale}"},
+                  {"status": "failed_transient"})
+    except Exception:
+        pass
     due = sb.select("applications", {"status": "eq.failed_transient", "select": "user_id,job_id,attempts",
                                      "or": f"(next_retry_at.is.null,next_retry_at.lt.{now})", "limit": "300"})
     retried = 0

@@ -121,6 +121,7 @@ create table if not exists applications (
   attempts      int     not null default 0,             -- retry bookkeeping
   next_retry_at timestamptz,                             -- when a transient failure is eligible again
   confirmed_at  timestamptz,                             -- when a success page/email verified the submission
+  claimed_at    timestamptz,                             -- when a worker claimed this job (status='filling'); stale → reclaimable
   submitted_at  timestamptz,
   created_at    timestamptz not null default now(),
   primary key (user_id, job_id)

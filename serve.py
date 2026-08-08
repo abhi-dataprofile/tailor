@@ -9,6 +9,7 @@ import json, os, re, sys, time, uuid, hashlib, urllib.request, urllib.parse
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from concurrent.futures import ThreadPoolExecutor
 import subprocess
+from app_status import classify   # single source of truth for application lifecycle status
 
 PORT = int(os.environ.get("PORT", "8765"))   # hosts (Render/Railway/Fly) inject $PORT
 DRY_RUN = os.environ.get("DRY_RUN") == "1"
@@ -244,7 +245,11 @@ def already_applied(url, apply_id):
                     rec = json.loads(line)
                 except Exception:
                     continue
-                if rec.get("ok") and rec.get("status") not in ("dry_run",) and \
+                # A prior attempt counts as "already applied" if it was accepted
+                # (ok) OR merely SENT (clicked submit but unconfirmed) — we must
+                # never re-submit a form that already left our hands.
+                already = rec.get("ok") or rec.get("sent") or rec.get("status") in ("submitted", "unconfirmed")
+                if already and rec.get("status") not in ("dry_run", "dry_prepared") and \
                    (rec.get("apply_id") == apply_id or rec.get("url") == url):
                     return rec
     except Exception:
@@ -304,8 +309,12 @@ def gh_apply(url, answers, resume_html):
     try:
         with urllib.request.urlopen(req, timeout=45) as r:
             ok = r.status in (200, 302)
+            # A 2xx/3xx means the POST was accepted — we SENT it — but Greenhouse
+            # returns no machine-readable confirmation here, so never claim confirmed.
             return {"ok": ok, "status": "submitted" if ok else f"http_{r.status}",
-                    "detail": f"HTTP {r.status}", "http_code": r.status, **audit}
+                    "sent": ok, "confirmed": False,
+                    "detail": f"Sent (HTTP {r.status}); no confirmation returned — verify manually." if ok else f"HTTP {r.status}",
+                    "http_code": r.status, **audit}
     except urllib.error.HTTPError as e:
         detail = ""
         try:
@@ -320,6 +329,33 @@ def gh_apply(url, answers, resume_html):
 def log_receipt(rec):
     with open(APP_LOG, "a") as f:
         f.write(json.dumps(rec) + "\n")
+
+def _mirror_application(user, job_id, res, answers, rec, resume_html=""):
+    """Write the honest lifecycle row into the per-user applications table so the
+    Activity view reflects exactly what the agent did. No-op without a DB + job_id.
+    Never overwrites a real send with a lesser status (e.g. a later retry that errors)."""
+    if not (sb and sb.is_configured() and job_id):
+        return
+    try:
+        status = classify(res)
+        sent = status in ("confirmed", "submitted_unconfirmed")
+        now_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        prior = sb.select("applications", {"user_id": f"eq.{user}", "job_id": f"eq.{job_id}",
+                                           "select": "attempts,status,submitted_at"}) or []
+        p = prior[0] if prior else {}
+        # idempotency: once sent/confirmed, don't downgrade on a subsequent attempt
+        if p.get("status") in ("confirmed",) and status != "confirmed":
+            return
+        row = {"user_id": user, "job_id": job_id, "status": status,
+               "answers": answers, "receipt": rec,
+               "attempts": ((p.get("attempts") or 0) + 1),
+               "submitted_at": (p.get("submitted_at") or (now_iso if sent else None)),
+               "confirmed_at": now_iso if status == "confirmed" else None}
+        if sent and resume_html:
+            row["resume_html"] = resume_html
+        sb.upsert("applications", [row], on_conflict="user_id,job_id", update=True)
+    except Exception:
+        pass
 
 # ============================================================
 #  SUPABASE-BACKED READ/WRITE API (jobs index + user profile)
@@ -532,6 +568,52 @@ def job_detail(qs):
     rows = sb.select("jobs", {"select": "*", "id": f"eq.{jid}", "limit": "1"})
     return {"ok": bool(rows), "job": rows[0] if rows else None}
 
+from app_status import LABELS as _STATUS_LABELS
+
+def applications_feed(user):
+    """The Activity feed: every application the agent (or the user) has attempted,
+    newest first, each with its honest status, the issue detail, and whether a
+    screenshot is available. This is what makes the auto-apply agent observable."""
+    # NB: confirmed_at is added by the lifecycle migration; select a set that also
+    # works pre-migration so the feed shows existing rows immediately.
+    apps = sb.select("applications", {
+        "user_id": f"eq.{user}",
+        "select": "job_id,status,attempts,submitted_at,created_at,next_retry_at,receipt",
+        "order": "created_at.desc", "limit": "400"}) or []
+    ids = [str(a["job_id"]) for a in apps if a.get("job_id")]
+    jobs = {}
+    if ids:
+        for j in sb.select("jobs", {"id": f"in.({','.join(ids)})",
+                                    "select": "id,title,company_slug,vendor,url,location"}) or []:
+            jobs[j["id"]] = j
+    out = []
+    for a in apps:
+        rec = a.get("receipt") or {}
+        j = jobs.get(a["job_id"], {})
+        st = a.get("status") or "draft"
+        label, tone = _STATUS_LABELS.get(st, (st, "neutral"))
+        out.append({
+            "job_id": a["job_id"],
+            "title": j.get("title") or rec.get("job") or "(job)",
+            "company": j.get("company_slug") or "",
+            "vendor": j.get("vendor") or rec.get("backend") or "",
+            "url": j.get("url") or rec.get("url") or "",
+            "location": j.get("location") or "",
+            "status": st, "label": label, "tone": tone,
+            "detail": rec.get("detail") or "",
+            "backend": rec.get("backend") or "",
+            "attempts": a.get("attempts") or 0,
+            "at": a.get("submitted_at") or a.get("created_at") or "",
+            "next_retry_at": a.get("next_retry_at") or "",
+            "unfilled": [u.get("label") for u in (rec.get("unfilled_required") or []) if isinstance(u, dict) and u.get("label")][:6],
+            "has_shot": bool(rec.get("screenshot")),
+        })
+    out.sort(key=lambda r: str(r.get("at") or ""), reverse=True)
+    counts = {}
+    for r in out:
+        counts[r["status"]] = counts.get(r["status"], 0) + 1
+    return {"ok": True, "count": len(out), "counts": counts, "applications": out}
+
 class H(SimpleHTTPRequestHandler):
     def _json(self, code, obj):
         data = json.dumps(obj).encode()
@@ -540,6 +622,29 @@ class H(SimpleHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
         self.wfile.write(data)
+    def _send_shot(self, user, job_id):
+        """Serve the agent's screenshot for THIS user's application on a job — the
+        proof of what the form looked like. Gated: we only serve a file that appears
+        in this user's own application receipt (no path traversal, no cross-user)."""
+        if not (sb and sb.is_configured() and job_id):
+            return self._json(404, {"ok": False})
+        try:
+            rows = sb.select("applications", {"user_id": f"eq.{user}", "job_id": f"eq.{job_id}",
+                                              "select": "receipt", "limit": "1"}) or []
+            shot = ((rows[0].get("receipt") or {}).get("screenshot")) if rows else None
+            if not shot:
+                return self._json(404, {"ok": False})
+            path = os.path.join(HERE, "applications_out", os.path.basename(shot))  # basename → no traversal
+            if not os.path.isfile(path):
+                return self._json(404, {"ok": False})
+            data = open(path, "rb").read()
+            self.send_response(200)
+            self.send_header("Content-Type", "image/png")
+            self.send_header("Cache-Control", "private, max-age=60")
+            self.end_headers()
+            self.wfile.write(data)
+        except Exception:
+            self._json(404, {"ok": False})
     def do_GET(self):
         if self.path.startswith("/api/discover"):
             qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
@@ -591,6 +696,14 @@ class H(SimpleHTTPRequestHandler):
             qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
             try: return self._json(200, job_detail(qs))
             except Exception as e: return self._json(200, {"ok": False, "detail": str(e)[:160]})
+        if urllib.parse.urlparse(self.path).path == "/api/applications":
+            if not (sb and sb.is_configured()):
+                return self._json(200, {"ok": False, "status": "no_db"})
+            try: return self._json(200, applications_feed(_req_user(self)))
+            except Exception as e: return self._json(200, {"ok": False, "detail": str(e)[:200]})
+        if urllib.parse.urlparse(self.path).path == "/api/shot":
+            qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            return self._send_shot(_req_user(self), (qs.get("job") or [""])[0])
         if self.path.startswith("/api/jobs") or self.path.startswith("/api/profile"):
             if not (sb and sb.is_configured()):
                 return self._json(200, {"ok": False, "status": "no_db",
@@ -693,10 +806,14 @@ class H(SimpleHTTPRequestHandler):
                        "detail": (p.stderr or "no output — is Playwright set up? see SETUP.md")[:220]}
             except Exception as e:
                 res = {"ok": False, "status": "error", "detail": str(e)[:200]}
-            log_receipt({"at": time.strftime("%Y-%m-%d %H:%M:%S"), "user": user, "backend": "browser",
-                         "url": body.get("url"), "job": body.get("label"), "live": bool(body.get("live")),
-                         "ok": bool(res.get("ok")), "status": res.get("status"), "detail": res.get("detail"),
-                         "screenshot": res.get("screenshot")})
+            rec = {"at": time.strftime("%Y-%m-%d %H:%M:%S"), "user": user, "backend": "browser",
+                   "url": body.get("url"), "job": body.get("label"), "job_id": body.get("job_id"),
+                   "live": bool(body.get("live")), "ok": bool(res.get("ok")), "status": res.get("status"),
+                   "detail": res.get("detail"), "screenshot": res.get("screenshot"),
+                   "unfilled_required": res.get("unfilled_required")}
+            log_receipt(rec)
+            _mirror_application(user, body.get("job_id"), res, body.get("answers", {}) or {}, rec,
+                                body.get("resume_html", "") or "")
             return self._json(200, res)
         if self.path == "/api/apply":
             n = int(self.headers.get("Content-Length", 0))
@@ -733,17 +850,7 @@ class H(SimpleHTTPRequestHandler):
             }
             log_receipt(rec)
             # mirror into the per-user applications table when we have a DB + job id
-            try:
-                if sb and sb.is_configured() and payload.get("job_id"):
-                    submitted = bool(res.get("ok")) and res.get("status") not in ("dry_run", "already_applied")
-                    sb.upsert("applications", [{
-                        "user_id": user, "job_id": payload.get("job_id"),
-                        "status": "submitted" if submitted else ("draft" if res.get("status") == "dry_run" else "failed"),
-                        "human_in_loop": True, "answers": answers, "receipt": rec,
-                        "submitted_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()) if submitted else None,
-                    }], on_conflict="user_id,job_id", update=True)
-            except Exception:
-                pass
+            _mirror_application(user, payload.get("job_id"), res, answers, rec, resume_html)
             res["apply_id"] = apply_id
             return self._json(200, res)
         return self._json(404, {"ok": False})

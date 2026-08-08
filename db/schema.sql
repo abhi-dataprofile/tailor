@@ -107,14 +107,20 @@ create table if not exists tailorings (
 create table if not exists applications (
   user_id       text   not null,
   job_id        bigint not null references jobs(id) on delete cascade,
+  -- honest application lifecycle (see apply.py _record). 'submitted_unconfirmed' = we
+  -- clicked submit but have NOT seen a success page/email yet; 'confirmed' = we did.
+  -- legacy values kept in the CHECK so pre-migration rows stay valid.
   status        text   not null default 'draft'
-                 check (status in ('draft','awaiting_review','approved','submitted','failed','manual')),
+                 check (status in ('draft','queued','filling','needs_you','blocked_captcha',
+                                   'submitted_unconfirmed','confirmed','failed_transient','failed_permanent',
+                                   'awaiting_review','approved','submitted','failed','manual')),
   human_in_loop boolean not null default true,          -- pause for the user unless they opted out
   answers       jsonb,                                  -- filled application questions
   resume_html   text,                                   -- EXACT résumé submitted (snapshot, survives re-tailoring)
-  receipt       jsonb,                                  -- submission result / confirmation
+  receipt       jsonb,                                  -- submission result / confirmation (backend, detail, screenshot…)
   attempts      int     not null default 0,             -- retry bookkeeping
   next_retry_at timestamptz,                             -- when a transient failure is eligible again
+  confirmed_at  timestamptz,                             -- when a success page/email verified the submission
   submitted_at  timestamptz,
   created_at    timestamptz not null default now(),
   primary key (user_id, job_id)

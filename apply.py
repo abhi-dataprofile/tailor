@@ -29,6 +29,7 @@ import serve                      # reuse the hardened, tested apply engine (no 
 import supabase_client as sb
 import llm
 import ats_official
+from app_status import classify, SETTLED
 
 MAX_RETRIES = int(os.environ.get("APPLY_MAX_RETRIES", "3"))
 
@@ -159,20 +160,20 @@ def _record(user_id, job, res, ans, apply_id, blocked, resume_html=""):
            "submitted_fields": res.get("submitted"), "sensitive_sent": res.get("sensitive_sent"), "blocked": blocked}
     serve.log_receipt(rec)
     try:
-        submitted = bool(res.get("ok")) and res.get("status") not in ("dry_run", "already_applied")
-        status = ("submitted" if submitted else
-                  "manual" if res.get("status") in ("captcha", "unsupported", "unsupported_form", "blocked", "no_submit_button") else
-                  "awaiting_review" if res.get("status") in ("needs_review", "needs_answers") else "failed")
+        status = classify(res)
+        sent = status in ("confirmed", "submitted_unconfirmed")
+        now_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         prior = sb.select("applications", {"user_id": f"eq.{user_id}", "job_id": f"eq.{job['id']}", "select": "attempts"})
         attempts = ((prior[0].get("attempts") if prior else 0) or 0) + 1
         row = {"user_id": user_id, "job_id": job["id"], "status": status, "human_in_loop": False,
                "answers": ans, "receipt": rec, "attempts": attempts, "next_retry_at": None,
-               "submitted_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()) if submitted else None}
-        if submitted and resume_html:
+               "submitted_at": now_iso if sent else None,
+               "confirmed_at": now_iso if status == "confirmed" else None}
+        if sent and resume_html:
             row["resume_html"] = resume_html   # snapshot exactly what we sent
 
-        # only transient failures are retried, with exponential backoff; manual/awaiting_review are not
-        if status == "failed" and attempts < MAX_RETRIES:
+        # ONLY genuine transient failures are retried (never a form we already sent).
+        if status == "failed_transient" and attempts < MAX_RETRIES:
             row["next_retry_at"] = _iso(_now() + datetime.timedelta(hours=min(6, 2 ** attempts)))
         sb.upsert("applications", [row], on_conflict="user_id,job_id", update=True)
     except Exception:
@@ -203,7 +204,7 @@ def run(user):
         minsc, cap = cfg.get("min_score", MIN_SCORE), cfg.get("max_per_run", MAX_PER_RUN)
         ujs = sb.select("user_jobs", {"user_id": f"eq.{u['user_id']}", "select": "job_id,score", "order": "score.desc", "limit": "200"})
         done = {r["job_id"] for r in sb.select("applications", {"user_id": f"eq.{u['user_id']}", "select": "job_id,status"})
-                if r.get("status") in ("submitted", "manual")}
+                if r.get("status") in SETTLED}
         n = 0
         for uj in ujs:
             if n >= cap:
@@ -226,7 +227,7 @@ def run(user):
 def run_retry():
     """Re-attempt transient failures whose backoff has elapsed; report the manual queue."""
     now = _iso(_now())
-    due = sb.select("applications", {"status": "eq.failed", "select": "user_id,job_id,attempts",
+    due = sb.select("applications", {"status": "eq.failed_transient", "select": "user_id,job_id,attempts",
                                      "or": f"(next_retry_at.is.null,next_retry_at.lt.{now})", "limit": "300"})
     retried = 0
     for a in due:
@@ -240,10 +241,11 @@ def run_retry():
         print(f"  retry [{a['user_id'][:8]}] job {a['job_id']} -> {st}")
         retried += 1
         time.sleep(RATE_SLEEP)
-    manual = sb.select("applications", {"status": "eq.manual", "select": "user_id,job_id", "limit": "500"})
-    review = sb.select("applications", {"status": "eq.awaiting_review", "select": "user_id,job_id", "limit": "500"})
-    print(f"[retry] re-attempted {retried} · manual queue (CAPTCHA/unsupported, need a human): {len(manual)} · "
-          f"awaiting standing answers: {len(review)}")
+    manual = sb.select("applications", {"status": "eq.blocked_captcha", "select": "user_id,job_id", "limit": "500"})
+    review = sb.select("applications", {"status": "eq.needs_you", "select": "user_id,job_id", "limit": "500"})
+    unconf = sb.select("applications", {"status": "eq.submitted_unconfirmed", "select": "user_id,job_id", "limit": "500"})
+    print(f"[retry] re-attempted {retried} · captcha queue (need a human): {len(manual)} · "
+          f"awaiting your answers: {len(review)} · sent but unconfirmed: {len(unconf)}")
 
 def dry():
     profile = {"name": "Alex Morgan", "email": "alex@morgan.io", "contact": "+1 555 0100",

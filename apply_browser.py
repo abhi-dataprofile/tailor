@@ -397,8 +397,13 @@ def submit(job, answers, resume_html, standing=None, dry=True, headless=True, ti
                 pass
             ok = any(t in body for t in ["thank you", "application submitted", "received your application", "we received", "successfully"])
             page.screenshot(path=shot, full_page=True)
-            return {"ok": ok, "status": "submitted" if ok else "unconfirmed",
-                    "detail": "Submitted." if ok else "Submitted but no confirmation detected — verify manually.", **prepared}
+            # We ALWAYS clicked submit here, so it was sent either way. `confirmed`
+            # says whether we actually SAW proof (a success page). Callers must not
+            # treat unconfirmed as a failure to retry — it was sent.
+            return {"ok": ok, "status": "submitted" if ok else "unconfirmed", "sent": True, "confirmed": ok,
+                    "confirm_url": page.url,
+                    "detail": "Submitted — confirmation page detected." if ok
+                              else "Submitted, but no confirmation page detected — verify manually.", **prepared}
         except Exception as e:
             return {"ok": False, "status": "browser_error", "detail": str(e)[:200]}
         finally:

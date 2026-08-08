@@ -20,7 +20,14 @@ pids=()
 cleanup(){ echo; echo "stopping…"; for p in "${pids[@]}"; do kill "$p" 2>/dev/null || true; done; }
 trap cleanup INT TERM EXIT
 
-echo "→ web server on http://localhost:8765"
+# free the port if a previous run left a server behind (avoids "Address already in use")
+PORT="${PORT:-8765}"
+if lsof -ti "tcp:$PORT" >/dev/null 2>&1; then
+  echo "→ port $PORT was busy — stopping the old server"
+  lsof -ti "tcp:$PORT" | xargs kill -9 2>/dev/null || true
+  sleep 1
+fi
+echo "→ web server on http://localhost:$PORT"
 $PY serve.py &
 pids+=($!)
 

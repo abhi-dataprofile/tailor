@@ -68,8 +68,11 @@ def upsert(table, rows, on_conflict, update=True):
     return _request("POST", table, params={"on_conflict": on_conflict},
                     body=rows, prefer=f"resolution={resolution},return=representation") or []
 
-def update(table, params, patch):
-    return _request("PATCH", table, params=params, body=patch, prefer="return=representation") or []
+def update(table, params, patch, minimal=False):
+    # minimal=True → Prefer: return=minimal (no body echoed back). Essential for bulk
+    # updates so the server doesn't ship every updated row (with big columns) back.
+    prefer = "return=minimal" if minimal else "return=representation"
+    return _request("PATCH", table, params=params, body=patch, prefer=prefer) or []
 
 def insert(table, rows, return_rep=True):
     return _request("POST", table, body=rows,

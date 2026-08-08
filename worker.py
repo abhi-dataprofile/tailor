@@ -125,7 +125,8 @@ def dry():
     print("\n[dry] OK — set SUPABASE_URL + SUPABASE_SERVICE_KEY to persist.")
 
 def backfill_country():
-    """One-time: set jobs.country on existing rows from their location text."""
+    """One-time: set jobs.country on existing rows from their location text.
+    Resumable (only touches rows where country is null) and retries transient blips."""
     import geo
     done = 0
     while True:
@@ -136,9 +137,18 @@ def backfill_country():
         for r in rows:
             buckets.setdefault(geo.country_of(r.get("location") or ""), []).append(r["id"])
         for country, ids in buckets.items():
-            for i in range(0, len(ids), 400):
-                chunk = ids[i:i + 400]
-                sb.update("jobs", {"id": f"in.({','.join(map(str, chunk))})"}, {"country": country})
+            for i in range(0, len(ids), 300):
+                chunk = ids[i:i + 300]
+                for attempt in range(5):
+                    try:
+                        sb.update("jobs", {"id": f"in.({','.join(map(str, chunk))})"},
+                                  {"country": country}, minimal=True)   # no huge response body
+                        break
+                    except Exception as e:
+                        if attempt == 4:
+                            raise
+                        print(f"[backfill] retry ({e.__class__.__name__}) in {2*(attempt+1)}s…")
+                        time.sleep(2 * (attempt + 1))
                 done += len(chunk)
         print(f"[backfill] country set on {done} rows…")
     print(f"[backfill] done — {done} rows updated")

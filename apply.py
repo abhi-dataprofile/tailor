@@ -79,11 +79,12 @@ def _claim(user_id, job_id):
     except Exception:
         return None   # e.g. claimed_at column not migrated yet → degrade to legacy dedup
 
-def submit_application(job, answers, resume_html, dry):
+def submit_application(job, answers, resume_html, dry, standing=None):
     """Pick the best available submission backend for this job:
        1) official employer API (if this company is in connectors.json),
-       2) headless browser (Playwright) when APPLY_BROWSER=1,
-       3) the legacy unauthenticated form engine (works on old boards only)."""
+       2) headless browser (Playwright) when APPLY_BROWSER=1 — handles Greenhouse,
+          Lever and Ashby, filling legal Qs from `standing` and free-text via the LLM,
+       3) the legacy unauthenticated form engine (Greenhouse-only)."""
     cfg = ats_official.resolve(job)
     if cfg:
         r = ats_official.submit(job, answers, resume_html, cfg)
@@ -93,7 +94,7 @@ def submit_application(job, answers, resume_html, dry):
     if os.environ.get("APPLY_BROWSER") == "1":
         try:
             import apply_browser
-            r = apply_browser.submit(job, answers, resume_html, dry=dry)
+            r = apply_browser.submit(job, answers, resume_html, standing=standing or {}, dry=dry)
             r["backend"] = "browser"
             return r
         except Exception as e:
@@ -249,8 +250,9 @@ def apply_one(user_id, profile, job):
                 "detail": "Missing standing answers: " + "; ".join(blocked[:4])}, ans, apply_id, blocked)
         return "needs_review"
     resume = resume_for(user_id, job["id"], profile, job)
+    standing = (profile.get("data") or {}).get("standing") or {}   # answer bank for the browser engine
     _throttle(job["url"])                    # keep a polite gap between hits on the same board
-    res = submit_application(job, ans, resume, dry=bool(serve.DRY_RUN))
+    res = submit_application(job, ans, resume, dry=bool(serve.DRY_RUN), standing=standing)
     _record(user_id, job, res, ans, apply_id, [], resume)
     return (res.get("backend", "?") + ":" + str(res.get("status")))
 
@@ -282,8 +284,12 @@ def run(user):
             if not jr:
                 continue
             job = jr[0]
-            if job.get("vendor") != "greenhouse":
-                _record(u["user_id"], job, {"ok": False, "status": "unsupported", "detail": "Non-Greenhouse — queued manual"}, {}, uuid.uuid4().hex, [])
+            # Greenhouse works via the legacy engine; Lever/Ashby (and others) need the
+            # browser engine. If it's off, non-Greenhouse can't be auto-submitted — record
+            # it honestly as manual rather than pretending, and don't burn the claim.
+            if job.get("vendor") != "greenhouse" and os.environ.get("APPLY_BROWSER") != "1":
+                _record(u["user_id"], job, {"ok": False, "status": "unsupported",
+                        "detail": "Needs the browser engine (set APPLY_BROWSER=1) — queued manual."}, {}, uuid.uuid4().hex, [])
                 continue
             st = apply_one(u["user_id"], prof, job)
             print(f"  [{u['user_id'][:8]}] {str(job.get('title',''))[:40]:40} -> {st}")

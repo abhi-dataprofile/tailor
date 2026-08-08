@@ -127,7 +127,7 @@ ANSWER_KEYS = [
  ("full_name", ["full name","legal name","your name"]),
  ("email", ["email"]),
  ("phone", ["phone","mobile number","contact number"]),
- ("current_location", ["current location","where are you located","city, state","location (city","your location"]),
+ ("current_location", ["current location","where are you located","currently located","where do you live","based in","city, state","location (city","your location","where are you based"]),
  ("current_company", ["current company","current employer","previous employer","most recent employer"]),
  ("linkedin", ["linkedin"]),
  ("github", ["github"]),
@@ -385,6 +385,45 @@ def _llm_answer_fields(context, fields):
     except Exception:
         return {}
 
+def _is_combobox(el):
+    """A React/ARIA typeahead (Ashby location, Greenhouse degree, etc.): looks like a text
+    input but needs type→pick-from-listbox, not a plain fill."""
+    try:
+        return bool(el.evaluate(
+            "e=>e.getAttribute('role')==='combobox'||e.getAttribute('aria-haspopup')==='listbox'"
+            "||e.getAttribute('aria-autocomplete')==='list'||e.getAttribute('aria-expanded')!==null"))
+    except Exception:
+        return False
+
+def _fill_combobox(page, el, value):
+    """Type into a typeahead and select the best-matching option from its popup listbox.
+    Filling the value directly wouldn't register the selection in a React combobox."""
+    v = str(value).strip()
+    if not v:
+        return False
+    try:
+        el.click(); el.fill(""); el.type(v[:48], delay=25)
+        page.wait_for_timeout(750)   # let async options load
+        vl = v.lower()
+        for sel in ("[role=option]", "li[role=option]", "[role=listbox] li",
+                    "[class*=option i]", "[class*=menu i] li", "[class*=result i] li"):
+            opts = [o for o in page.query_selector_all(sel) if o.is_visible()]
+            if not opts:
+                continue
+            pick = None
+            for o in opts:
+                t = (o.inner_text() or "").strip().lower()
+                if t and (vl[:14] in t or t[:14] in vl):
+                    pick = o; break
+            pick = pick or opts[0]
+            pick.click(); page.wait_for_timeout(200)
+            return True
+        # no popup rendered — fall back to keyboard selection of the first suggestion
+        el.press("ArrowDown"); page.wait_for_timeout(150); el.press("Enter")
+        return bool(el.evaluate("e=>e.value"))
+    except Exception:
+        return False
+
 def _fill_questions(page, bank, context=""):
     """Fill selects, radios and text fields from the answer bank; then, for any NON-sensitive
     required question still unanswered, ask the backend LLM from the candidate's material.
@@ -448,6 +487,15 @@ def _fill_questions(page, bank, context=""):
                 if _is_required(el):
                     unfilled.append({"label": label or "(date)", "type": "date"})
                 continue
+            if _is_combobox(el):
+                if ans and _fill_combobox(page, el, ans): continue
+                if _is_required(el):
+                    meta = {"label": label or "(choice)", "type": "combo"}
+                    if _SENSITIVE_RE.search(label or ""):
+                        unfilled.append(meta)                  # sensitive → standing only
+                    else:
+                        pending.append((el, meta))
+                continue
             if ans:
                 el.fill(str(ans)); continue
             if _is_required(el):
@@ -466,7 +514,12 @@ def _fill_questions(page, bank, context=""):
         done = False
         if a:
             try:
-                done = _select_by_text(el, a) if meta["type"] == "select" else (el.fill(a) or True)
+                if meta["type"] == "select":
+                    done = _select_by_text(el, a)
+                elif meta["type"] == "combo":
+                    done = _fill_combobox(page, el, a)
+                else:
+                    el.fill(a); done = True
             except Exception:
                 done = False
         if not done:

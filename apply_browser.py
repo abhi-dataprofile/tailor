@@ -23,6 +23,9 @@ Test safely (prepares + screenshots, never submits):
 import os, re, time, tempfile, argparse, datetime, json
 
 OUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "applications_out")
+# a dedicated, persistent real-Chrome profile — keeps cookies/session warm across applies
+# (a genuine browser environment → fewer bot challenges; NOT fingerprint spoofing)
+_PROFILE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".tailor_chrome")
 
 CAPTCHA_HINTS = ["recaptcha", "hcaptcha", "g-recaptcha", "cf-turnstile", "data-sitekey", "are you human"]
 
@@ -609,14 +612,28 @@ def submit(job, answers, resume_html, standing=None, dry=True, headless=True, ti
     os.makedirs(OUT_DIR, exist_ok=True)
     # submission is driven by the caller (UI "Fill & submit" toggle). APPLY_DRY_ONLY=1 hard-forces dry.
     live = (not dry) and os.environ.get("APPLY_DRY_ONLY") != "1"
+    # APPLY_HEADED=1 → run a VISIBLE Chrome window (watch it, or solve a captcha yourself).
+    if os.environ.get("APPLY_HEADED") == "1":
+        headless = False
     sync_playwright = _pw()
     with sync_playwright() as p:
-        try:
-            browser = p.chromium.launch(headless=headless, channel="chrome")
-        except Exception:
-            browser = p.chromium.launch(headless=headless)
-        ctx = browser.new_context(accept_downloads=False)
-        page = ctx.new_page()
+        # Real Chrome with a PERSISTENT profile (warm cookies/session) → far fewer bot
+        # challenges than a cold, fresh context (this is genuine — no spoofing). Falls back
+        # to a fresh context if the profile is locked (e.g. another apply already using it).
+        browser = ctx = None
+        if os.environ.get("APPLY_PERSIST", "1") != "0":
+            try:
+                ctx = p.chromium.launch_persistent_context(_PROFILE_DIR, headless=headless,
+                        channel="chrome", accept_downloads=False)
+            except Exception:
+                ctx = None
+        if ctx is None:
+            try:
+                browser = p.chromium.launch(headless=headless, channel="chrome")
+            except Exception:
+                browser = p.chromium.launch(headless=headless)
+            ctx = browser.new_context(accept_downloads=False)
+        page = ctx.pages[0] if (browser is None and ctx.pages) else ctx.new_page()
         try:
             page.goto(url, wait_until="domcontentloaded", timeout=timeout)
             page.wait_for_timeout(1500)
@@ -775,7 +792,11 @@ def submit(job, answers, resume_html, standing=None, dry=True, headless=True, ti
         except Exception as e:
             return {"ok": False, "status": "browser_error", "detail": str(e)[:200]}
         finally:
-            ctx.close(); browser.close()
+            try: ctx.close()
+            except Exception: pass
+            if browser is not None:
+                try: browser.close()
+                except Exception: pass
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()

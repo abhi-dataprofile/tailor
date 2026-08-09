@@ -33,3 +33,6 @@ applications_out/
 crawl_cache/
 *.jsonl
 connectors.json
+
+# persistent Chrome profile for the apply engine
+.tailor_chrome/

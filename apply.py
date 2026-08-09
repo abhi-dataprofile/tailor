@@ -228,8 +228,8 @@ def _record(user_id, job, res, ans, apply_id, blocked, resume_html=""):
                "answers": ans, "receipt": rec, "attempts": attempts, "next_retry_at": None,
                "submitted_at": now_iso if sent else None,
                "confirmed_at": now_iso if status == "confirmed" else None}
-        if sent and resume_html:
-            row["resume_html"] = resume_html   # snapshot exactly what we sent
+        if (sent or status == "awaiting_review") and resume_html:
+            row["resume_html"] = resume_html   # snapshot exactly what we sent / prepared
 
         # ONLY genuine transient failures are retried (never a form we already sent).
         if status == "failed_transient" and attempts < MAX_RETRIES:
@@ -238,7 +238,10 @@ def _record(user_id, job, res, ans, apply_id, blocked, resume_html=""):
     except Exception:
         pass
 
-def apply_one(user_id, profile, job):
+def apply_one(user_id, profile, job, review=False, force_live=False):
+    """review=True → tailor + fill + screenshot but DON'T submit; record 'awaiting_review'
+    (ready for the user's one-click Submit). force_live=True → the user clicked Submit on a
+    reviewed job, so send it. DRY_RUN is an absolute operator kill-switch and always wins."""
     apply_id = uuid.uuid4().hex
     # apply via the clean Greenhouse form, not a company careers-page embed (avoids most
     # spurious captcha / no-submit-button failures).
@@ -259,9 +262,23 @@ def apply_one(user_id, profile, job):
     resume = resume_for(user_id, job["id"], profile, job)
     standing = (profile.get("data") or {}).get("standing") or {}   # answer bank for the browser engine
     _throttle(job["url"])                    # keep a polite gap between hits on the same board
-    res = submit_application(job, ans, resume, dry=bool(serve.DRY_RUN), standing=standing)
+    dry = bool(serve.DRY_RUN) or (review and not force_live)
+    res = submit_application(job, ans, resume, dry=dry, standing=standing)
+    # review-mode clean prepare (nothing required missing) → awaiting_review = ready to Submit
+    if review and not force_live and res.get("status") == "dry_prepared" and not (res.get("unfilled_required") or []):
+        res = {**res, "status": "awaiting_review", "ok": True,
+               "detail": "Prepared and ready — review and click Submit."}
     _record(user_id, job, res, ans, apply_id, [], resume)
     return (res.get("backend", "?") + ":" + str(res.get("status")))
+
+def submit_reviewed(user_id, job_id):
+    """User clicked Submit on a reviewed job → send it live with the prepared answers."""
+    prof = (sb.select("profiles", {"user_id": f"eq.{user_id}", "select": "*"}) or [{}])[0]
+    jr = sb.select("jobs", {"id": f"eq.{job_id}", "select": "*"})
+    if not jr:
+        return {"ok": False, "detail": "job not found"}
+    st = apply_one(user_id, prof, jr[0], review=False, force_live=True)
+    return {"ok": True, "result": st}
 
 def run(user):
     users = [{"user_id": user}] if user else [u for u in sb.select("profiles", {"select": "user_id"})]
@@ -271,6 +288,7 @@ def run(user):
         if not cfg.get("enabled"):
             continue
         minsc, cap = cfg.get("min_score", MIN_SCORE), cfg.get("max_per_run", MAX_PER_RUN)
+        review = (cfg.get("mode") or "auto") == "review"   # 'review' → prepare only, wait for Submit
         ujs = sb.select("user_jobs", {"user_id": f"eq.{u['user_id']}", "select": "job_id,score", "order": "score.desc", "limit": "200"})
         done = {r["job_id"] for r in sb.select("applications", {"user_id": f"eq.{u['user_id']}", "select": "job_id,status"})
                 if r.get("status") in SETTLED}
@@ -298,8 +316,8 @@ def run(user):
                 _record(u["user_id"], job, {"ok": False, "status": "unsupported",
                         "detail": "Needs the browser engine (set APPLY_BROWSER=1) — queued manual."}, {}, uuid.uuid4().hex, [])
                 continue
-            st = apply_one(u["user_id"], prof, job)
-            print(f"  [{u['user_id'][:8]}] {str(job.get('title',''))[:40]:40} -> {st}")
+            st = apply_one(u["user_id"], prof, job, review=review)
+            print(f"  [{u['user_id'][:8]}] {str(job.get('title',''))[:40]:40} -> {st}{' (review)' if review else ''}")
             n += 1
             time.sleep(RATE_SLEEP)
         print(f"[{u['user_id'][:8]}] attempted {n} (min_score={minsc}, cap={cap})")

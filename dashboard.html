@@ -302,7 +302,7 @@ async function refresh(){
 function authHeaders(){try{const s=JSON.parse(localStorage.getItem("tsenta_session")||"null");return s&&s.access_token?{"Authorization":"Bearer "+s.access_token}:{};}catch(e){return {};}}
 /* ---- Auto-apply activity: the agent's work, made visible ---- */
 let ACT=[],ACT_TAB="all";
-const ACT_TABS=[["all","All"],["needs_you","Needs you"],["blocked_captcha","Captcha"],["submitted_unconfirmed","Sent"],["confirmed","Applied"],["failed_transient","Retrying"],["failed_permanent","Failed"]];
+const ACT_TABS=[["all","All"],["awaiting_review","Review queue"],["needs_you","Needs you"],["blocked_captcha","Captcha"],["submitted_unconfirmed","Sent"],["confirmed","Applied"],["failed_transient","Retrying"],["failed_permanent","Failed"]];
 /* one-time: push applies previously tracked only in this browser up to the server,
    so they appear in the Activity view (with their résumé if we captured one). */
 async function syncLocalToServer(){
@@ -363,10 +363,17 @@ function hydrateShots(){document.querySelectorAll("#actList img[data-shot]").for
 function activityActions(a){
   const open=a.url?`<a class="btn ghost" style="padding:6px 11px" href="${esc(a.url)}" target="_blank" rel="noopener">Open form ↗</a>`:"";
   const rz=a.has_resume?`<button class="btn ghost" style="padding:6px 11px" onclick="viewActivityResume(${a.job_id})" title="The exact résumé saved for this application">📄 résumé</button>`:"";
+  if(a.status==="awaiting_review")return `<button class="btn accent" style="padding:6px 11px" onclick="submitReviewed(${a.job_id},this)" title="Send this prepared application now">Submit ↗</button>`+rz+open;
   if(a.status==="blocked_captcha")return `<a class="btn accent" style="padding:6px 11px" href="${esc(a.url)}" target="_blank" rel="noopener">Solve captcha ↗</a>`+rz+open;
   if(a.status==="needs_you")return `<a class="btn" style="padding:6px 11px" href="index.html#profile">Add answers</a>`+rz+open;
   if(a.status==="submitted_unconfirmed")return `<button class="btn" style="padding:6px 11px" onclick="markApplied(${a.job_id})" title="Confirm you received an application acknowledgement">Mark applied ✓</button>`+rz+open;
   return rz+open;
+}
+async function submitReviewed(jobId,btn){
+  if(btn){btn.disabled=true;btn.textContent="Submitting…";}
+  let r;try{r=await fetch("/api/apply-submit",{method:"POST",headers:{"Content-Type":"application/json",...authHeaders()},body:JSON.stringify({job_id:jobId})}).then(x=>x.json());}catch(e){r={ok:false};}
+  if(r&&r.ok){toast("Submitted ✓");loadActivity();}
+  else{if(btn){btn.disabled=false;btn.textContent="Submit ↗";}toast((r&&r.detail)||"Couldn't submit — try Open form");}
 }
 async function markApplied(jobId){
   try{const r=await fetch("/api/confirm",{method:"POST",headers:{"Content-Type":"application/json",...authHeaders()},body:JSON.stringify({job_id:jobId})}).then(x=>x.json());

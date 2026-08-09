@@ -11,8 +11,10 @@ The engine result may carry:
 """
 
 # statuses that mean "don't attempt this job again" — terminal, or waiting on a human.
-# submitted_unconfirmed is settled too: it was SENT; we confirm it, we never resend.
-SETTLED = ("confirmed", "submitted_unconfirmed", "blocked_captcha", "failed_permanent", "needs_you")
+# submitted_unconfirmed is settled (it was SENT); awaiting_review is prepared and waiting
+# for the user's one-click Submit — the worker must not re-prepare or auto-send it.
+SETTLED = ("confirmed", "submitted_unconfirmed", "blocked_captcha", "failed_permanent",
+           "needs_you", "awaiting_review")
 
 # human-readable labels + a coarse tone for the UI badge
 LABELS = {
@@ -25,10 +27,10 @@ LABELS = {
     "confirmed":             ("Applied",            "good"),
     "failed_transient":      ("Retrying",           "warn"),
     "failed_permanent":      ("Couldn't apply",     "bad"),
+    "awaiting_review":       ("Ready to submit",    "info"),   # prepared in review mode → click Submit
     # legacy statuses (pre-migration rows) so the Activity feed still renders them:
     "submitted":             ("Sent — confirming",  "info"),
     "manual":                ("Needs a human",      "warn"),
-    "awaiting_review":       ("Needs your answer",  "warn"),
     "approved":              ("Applied",            "good"),
     "failed":                ("Failed",             "bad"),
 }
@@ -38,6 +40,8 @@ def classify(res):
     """Raw engine result dict → honest lifecycle status string."""
     res = res or {}
     raw = (res.get("status") or "").lower()
+    if raw in ("awaiting_review", "ready"):
+        return "awaiting_review"          # prepared in review mode — waiting for the user's Submit
     if raw in ("dry_run", "dry_prepared"):
         return "draft"
     # "confirmed" is EARNED — only an explicit confirmed flag (a success page we

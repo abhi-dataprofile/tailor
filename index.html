@@ -3677,8 +3677,9 @@ function toggleAutoSubmit(){
   state.applyReview=!on;                       // ON → review off (auto-submit); OFF → review on
   if($("wbLiveMode"))$("wbLiveMode").checked=on;
   persist();renderAutoSubmitPill();if(typeof renderWbLive==="function")renderWbLive();
+  if(typeof saveAutoApply==="function")saveAutoApply(true);   // propagate auto/review mode to the backend
   if(on&&!confirmedLiveOnce()){toast("Auto-submit ON — real applications will be sent automatically, no per-application review");}
-  else toast(on?"Auto-submit ON":"Fill-only — you review each before it's sent");
+  else toast(on?"Auto-submit ON":"Fill-only — background prepares each; you Submit from the queue");
 }
 function confirmedLiveOnce(){try{if(localStorage.getItem("tailor_live_ack")==="1")return true;localStorage.setItem("tailor_live_ack","1");}catch(e){}return false;}
 async function browserApply(idx,btn,forceLive){
@@ -4064,12 +4065,14 @@ async function pullProfile(){
   return localEmpty;
 }
 const _STD_KNOWN=new Set(["work_authorized","needs_sponsorship","salary_expectation","years_experience","willing_to_relocate","notice_period"]);
-function saveAutoApply(){
+function saveAutoApply(quiet){
   state.autoApply={enabled:!!($("aaEnabled")&&$("aaEnabled").checked),
     min_score:parseInt(($("aaMinScore")&&$("aaMinScore").value)||"45",10)||45,
-    max_per_run:parseInt(($("aaMaxRun")&&$("aaMaxRun").value)||"10",10)||10};
+    max_per_run:parseInt(($("aaMaxRun")&&$("aaMaxRun").value)||"10",10)||10,
+    // 'review' (default) = backend prepares each, you Submit from the queue; 'auto' = it submits.
+    mode:(state.applyReview===false)?"auto":"review"};
   persist();if(signedIn())syncProfileToCloud();
-  toast(state.autoApply.enabled?"Auto-apply on — applies to your top matches":"Auto-apply off");
+  if(!quiet)toast(state.autoApply.enabled?("Auto-apply on ("+(state.autoApply.mode==="auto"?"submits automatically":"prepares for your review")+")"):"Auto-apply off");
 }
 function saveStanding(){
   const s={};const prev=state.standing||{};if(prev._custom)s._custom=Object.assign({},prev._custom);

@@ -918,6 +918,24 @@ class H(SimpleHTTPRequestHandler):
                 return self._json(200, {"ok": bool(ok)})
             except Exception as e:
                 return self._json(200, {"ok": False, "status": "error", "detail": str(e)[:200]})
+        if self.path == "/api/apply-submit":
+            # user clicked Submit on a reviewed job → send it live (server does the work)
+            if not (sb and sb.is_configured()):
+                return self._json(200, {"ok": False, "status": "no_db"})
+            n = int(self.headers.get("Content-Length", 0))
+            body = json.loads(self.rfile.read(n) or b"{}")
+            user = _req_user(self); jid = body.get("job_id")
+            if not jid:
+                return self._json(200, {"ok": False, "detail": "no job_id"})
+            _ok, _plan = _apply_gate(user)
+            if not _ok:
+                return self._json(200, {"ok": False, "status": "limit",
+                                        "detail": f"Daily free limit ({FREE_APPLY_LIMIT}) reached."})
+            try:
+                import apply
+                return self._json(200, apply.submit_reviewed(user, jid))
+            except Exception as e:
+                return self._json(200, {"ok": False, "status": "error", "detail": str(e)[:200]})
         if self.path == "/api/billing/checkout":
             if not (billing and billing.provider()):
                 return self._json(200, {"ok": False, "detail": "No billing provider configured."})

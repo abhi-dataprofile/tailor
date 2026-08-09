@@ -548,6 +548,22 @@ def _fill_questions(page, bank, context=""):
                 unfilled.append({"label": qlabel or "(choice)", "type": "radio", "options": [_radio_label(r) for r in rs][:8]})
         except Exception:
             continue
+    # required checkboxes: tick benign certifications ("I certify the info is accurate");
+    # leave legal AGREEMENTS (arbitration/terms/privacy) for the human to accept.
+    for cb in page.query_selector_all("input[type='checkbox']"):
+        try:
+            if not cb.is_visible() or cb.evaluate("e=>e.checked"): continue
+            if not _is_required(cb): continue
+            label = _label_text(cb) or _radio_label(cb)
+            if _LEGAL_CONSENT.search(label or ""):
+                unfilled.append({"label": (label or "(agreement)")[:90], "type": "consent"})
+            else:
+                try: cb.check()
+                except Exception:
+                    try: cb.click()
+                    except Exception: unfilled.append({"label": label or "(checkbox)", "type": "checkbox"})
+        except Exception:
+            continue
     # remaining text / textarea / url / number / date
     for el in page.query_selector_all("input[type='text'],input:not([type]),textarea,input[type='url'],input[type='tel'],input[type='number'],input[type='date']"):
         try:
@@ -603,6 +619,72 @@ def _fill_questions(page, bank, context=""):
         k=(u["label"],u["type"])
         if k not in seen: seen.add(k); out.append(u)
     return out
+
+# legal AGREEMENTS the applicant must accept themselves (never auto-checked)
+_LEGAL_CONSENT = re.compile(
+    r"arbitrat|terms (of|and)|conditions|privacy policy|legally bound|waive|binding|"
+    r"consent to (the )?(processing|terms|agreement)|agree to (the )?(terms|arbitration|agreement)|"
+    r"e-?sign|electronic signature", re.I)
+_SUCCESS = ["thank you", "application submitted", "received your application", "we received",
+            "your application has been", "successfully", "application complete"]
+
+def _find_submit(frame, page, pack):
+    for sel in pack["submit"] + ["button:has-text('Submit application')", "button:has-text('Submit')",
+                                 "button:has-text('Send application')", "button:has-text('Finish')",
+                                 "input[type='submit']", "[role=button]:has-text('Submit')"]:
+        for scope in (frame, page):
+            try:
+                b = scope.query_selector(sel)
+                if b and b.is_visible():
+                    return b
+            except Exception:
+                continue
+    return None
+
+def _errors(frame):
+    try:
+        return frame.evaluate("""()=>[...document.querySelectorAll('[aria-invalid=\"true\"],[class*=error i],[class*=invalid i],[role=alert]')]
+            .filter(e=>e.offsetParent&&(e.innerText||'').trim()).slice(0,6).map(e=>(e.innerText||'').trim().slice(0,90))""") or []
+    except Exception:
+        return []
+
+def _verify(page, frame):
+    """After a submit click: 'confirmed' (success text), 'sent' (form gone, no proof),
+    or 'stuck' (still on the form — the board bounced it for corrections)."""
+    try:
+        body = (page.inner_text("body") + " " + (frame.inner_text("body") if frame is not page else "")).lower()
+    except Exception:
+        body = ""
+    if any(t in body for t in _SUCCESS):
+        return "confirmed"
+    try:
+        still = bool(frame.query_selector(_EMAIL_SEL))
+    except Exception:
+        try: still = bool(page.query_selector(_EMAIL_SEL))
+        except Exception: still = False
+    return "stuck" if still else "sent"
+
+def _fix_invalid(frame):
+    """After a validation bounce, tick benign required checkboxes the board flagged (leaving
+    legal agreements alone). Returns how many were fixed."""
+    n = 0
+    for cb in frame.query_selector_all("input[type='checkbox']"):
+        try:
+            if not cb.is_visible() or cb.evaluate("e=>e.checked"):
+                continue
+            flagged = _is_required(cb) or cb.evaluate("e=>e.getAttribute('aria-invalid')==='true'")
+            if not flagged:
+                continue
+            label = _label_text(cb) or _radio_label(cb)
+            if _LEGAL_CONSENT.search(label or ""):
+                continue
+            try: cb.check(); n += 1
+            except Exception:
+                try: cb.click(); n += 1
+                except Exception: pass
+        except Exception:
+            continue
+    return n
 
 def submit(job, answers, resume_html, standing=None, dry=True, headless=True, timeout=45000):
     """Fill (and, if not dry, submit) the apply form. Returns a result dict."""
@@ -721,71 +803,50 @@ def submit(job, answers, resume_html, standing=None, dry=True, headless=True, ti
                         "detail": "Not submitted — " + str(len(unfilled_required)) +
                                   " required question(s) still need answers. Fill them and it'll submit.",
                         **prepared}
-            # LIVE submit — search the form frame first, then the page, and as a last resort
-            # any visible element whose text is a submit verb (workaround for non-standard forms).
-            btn = None
-            for sel in pack["submit"]:
-                for scope in (frame, page):
-                    try:
-                        b = scope.query_selector(sel)
-                        if b and b.is_visible():
-                            btn = b; break
-                    except Exception:
-                        continue
-                if btn:
-                    break
-            if not btn:
-                for t in ("Submit application", "Submit Application", "Submit", "Send application", "Finish", "Apply"):
-                    for scope in (frame, page):
-                        try:
-                            b = scope.query_selector(f"button:has-text('{t}'), [role=button]:has-text('{t}'), input[type='submit']")
-                            if b and b.is_visible():
-                                btn = b; break
-                        except Exception:
-                            continue
-                    if btn:
-                        break
+            # LIVE submit
+            btn = _find_submit(frame, page, pack)
             if not btn:
                 return {"ok": False, "status": "no_submit_button", "detail": "Couldn't find the submit button — apply manually.", **prepared}
             url_before = page.url
-            btn.click()
-            page.wait_for_timeout(4000)
+            btn.click(); page.wait_for_timeout(4000)
             if _has_captcha(page):
                 return {"ok": False, "status": "captcha", "detail": "CAPTCHA appeared on submit — manual.", **prepared}
-            body = ""
-            try:
-                body = (page.inner_text("body") + " " + (frame.inner_text("body") if frame is not page else "")).lower()
-            except Exception:
-                pass
             page.screenshot(path=shot, full_page=True)
-            ok = any(t in body for t in ["thank you", "application submitted", "received your application",
-                                         "we received", "your application has been", "successfully"])
-            if ok:
+            v = _verify(page, frame)
+            if v == "confirmed":
                 return {"ok": True, "status": "submitted", "sent": True, "confirmed": True,
                         "confirm_url": page.url, "detail": "Submitted — confirmation page detected.", **prepared}
-            # No success text. Did the board actually accept it, or bounce us back to the
-            # form for validation? If the apply form is STILL here (with errors / same URL),
-            # it was NOT submitted — say so honestly instead of claiming "sent".
-            still_on_form = False
-            try:
-                still_on_form = bool(frame.query_selector(_EMAIL_SEL))
-            except Exception:
-                still_on_form = bool(page.query_selector(_EMAIL_SEL))
-            errors = []
-            try:
-                errors = frame.evaluate("""()=>[...document.querySelectorAll('[aria-invalid=\"true\"],[class*=error i],[class*=invalid i],[role=alert]')]
-                    .filter(e=>e.offsetParent&&(e.innerText||'').trim()).slice(0,5).map(e=>(e.innerText||'').trim().slice(0,90))""") or []
-            except Exception:
-                pass
-            if still_on_form and page.url == url_before:
-                rescan = _fill_questions(frame, _bank) or unfilled_required
+            if v == "sent":
+                return {"ok": False, "status": "unconfirmed", "sent": True, "confirmed": False,
+                        "confirm_url": page.url,
+                        "detail": "Submitted, but no confirmation page detected — verify manually.", **prepared}
+            # v == "stuck": the board bounced us for corrections. VALIDATION step — try to fix the
+            # flagged fields (tick benign required checkboxes, re-fill anything now empty/revealed)
+            # and resubmit ONCE, the way a person handles "you missed a field".
+            if page.url == url_before:
+                _fix_invalid(frame)
+                refill = _fill_questions(frame, _bank, context)
+                if not refill:
+                    btn2 = _find_submit(frame, page, pack)
+                    if btn2:
+                        btn2.click(); page.wait_for_timeout(4000)
+                        page.screenshot(path=shot, full_page=True)
+                        v2 = _verify(page, frame)
+                        if v2 == "confirmed":
+                            return {"ok": True, "status": "submitted", "sent": True, "confirmed": True,
+                                    "confirm_url": page.url, "detail": "Submitted — confirmation page detected (after fixing a flagged field).", **prepared}
+                        if v2 == "sent":
+                            return {"ok": False, "status": "unconfirmed", "sent": True, "confirmed": False,
+                                    "confirm_url": page.url,
+                                    "detail": "Submitted, but no confirmation page detected — verify manually.", **prepared}
+                errors = _errors(frame)
+                rescan = refill or _fill_questions(frame, _bank) or unfilled_required
                 detail = "The form didn't go through — it still needs answers"
                 if errors:
                     detail += ": " + "; ".join(dict.fromkeys(errors))[:180]
                 return {"ok": False, "status": "needs_answers", "detail": detail,
                         **{**prepared, "unfilled_required": rescan}}
-            # Form is gone and URL changed, but no explicit confirmation text: it was sent,
-            # we just couldn't prove receipt. Honest "unconfirmed" (never claimed as applied).
+            # URL changed but no confirmation text — probably sent, unproven.
             return {"ok": False, "status": "unconfirmed", "sent": True, "confirmed": False,
                     "confirm_url": page.url,
                     "detail": "Submitted, but no confirmation page detected — verify manually.", **prepared}

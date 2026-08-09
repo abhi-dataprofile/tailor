@@ -188,22 +188,24 @@ def resume_for(user_id, job_id, profile, job=None):
                                     "select": "resume_html,summary,bullets"})
     r = rows[0] if rows else {}
     if r.get("resume_html"):
-        return r["resume_html"]
-    # tailor the summary on demand if we don't have one yet (cache it for next time)
-    if not r.get("summary") and job is not None:
+        return r["resume_html"]              # a résumé already tailored/saved for this job
+    # FULL tailor on demand: rewrite the candidate's real history to the role, build the
+    # ~one-page résumé, and cache the rendered HTML so we never re-tailor this job.
+    if job is not None:
         try:
-            import pipeline
-            t = pipeline.tailor(profile, job)
-            if t.get("summary"):
-                r = {"summary": t["summary"], "bullets": t.get("bullets") or []}
+            import pipeline, llm
+            if llm.available():
+                tprofile, meta = pipeline.tailor_full(profile, job)
+                html = resume_build.build_resume_html(tprofile)
                 try:
-                    sb.upsert("tailorings", [{"user_id": user_id, "job_id": job_id, "summary": t["summary"],
-                              "bullets": t.get("bullets") or [], "provider": t.get("provider")}],
-                              on_conflict="user_id,job_id", update=True)
+                    sb.upsert("tailorings", [{"user_id": user_id, "job_id": job_id,
+                              "summary": meta.get("summary"), "resume_html": html,
+                              "provider": meta.get("provider")}], on_conflict="user_id,job_id", update=True)
                 except Exception:
                     pass
+                return html
         except Exception:
-            pass   # no LLM / tailor failed → fall back to the profile summary below
+            pass   # tailoring failed → fall back to a complete, untailored résumé below
     return resume_build.build_resume_html(profile, r)
 
 def _record(user_id, job, res, ans, apply_id, blocked, resume_html=""):

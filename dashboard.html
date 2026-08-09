@@ -223,6 +223,17 @@ a{color:var(--primary-tint)}
     .shot-modal{position:fixed;inset:0;z-index:400;display:none;align-items:center;justify-content:center;padding:24px;background:rgba(18,22,20,.72)}
     .shot-modal.on{display:flex}
     .shot-modal img{max-width:100%;max-height:92vh;border-radius:10px;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+    .act-detail{margin-top:10px;border-top:1px dashed var(--line);padding-top:10px}
+    .dt-wrap{display:flex;flex-direction:column;gap:14px}
+    .dt-cols{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+    @media(max-width:640px){.dt-cols{grid-template-columns:1fr}}
+    .dt-h{font:700 11px "Inter";text-transform:uppercase;letter-spacing:.05em;color:var(--ink-faint);margin-bottom:6px}
+    .dt-ev{font-size:12.5px;margin:0 0 6px;position:relative;padding-left:14px}
+    .dt-dot{position:absolute;left:0;top:5px;width:7px;height:7px;border-radius:50%;background:var(--ink-soft)}
+    .dt-qa{margin:0 0 8px}
+    .dt-q{font-size:12px;color:var(--ink-soft);font-weight:600}
+    .dt-a{font-size:13px;color:var(--ink);background:var(--line-soft);border-radius:7px;padding:4px 8px;margin-top:2px;white-space:pre-wrap}
+    .dt-meta{display:flex;justify-content:space-between;font-size:12.5px;padding:2px 0;border-bottom:1px solid var(--line-soft)}
     </style>
     <div class="sechead"><h2>Auto-apply activity</h2><span class="sub" id="actSub">what the agent did — every attempt, its outcome, and the proof</span>
       <div class="right"><button class="btn" onclick="loadActivity()"><svg class="ic" viewBox="0 0 24 24"><polyline points="21 4 21 9 16 9"/><path d="M20 13a8 8 0 1 1-2.3-5.7L21 9"/></svg> Refresh</button></div></div>
@@ -303,6 +314,7 @@ function authHeaders(){try{const s=JSON.parse(localStorage.getItem("tsenta_sessi
 /* ---- Auto-apply activity: the agent's work, made visible ---- */
 let ACT=[],ACT_TAB="all";
 const ACT_TABS=[["all","All"],["awaiting_review","Review queue"],["needs_you","Needs you"],["blocked_captcha","Captcha"],["submitted_unconfirmed","Sent"],["confirmed","Applied"],["failed_transient","Retrying"],["failed_permanent","Failed"]];
+const ACT_LABELS={queued:"In queue",filling:"Agent working",needs_you:"Needs your answer",blocked_captcha:"Captcha",submitted_unconfirmed:"Sent — confirming",confirmed:"Applied",failed_transient:"Retrying",failed_permanent:"Couldn't apply",awaiting_review:"Ready to submit",draft:"Draft"};window.ACT_LABELS=ACT_LABELS;
 /* one-time: push applies previously tracked only in this browser up to the server,
    so they appear in the Activity view (with their résumé if we captured one). */
 async function syncLocalToServer(){
@@ -341,12 +353,38 @@ function renderActivity(){
         </div>
         ${a.detail?`<div class="detail">${esc(a.detail)}</div>`:""}
         ${miss}
-        ${acts?`<div class="acts">${acts}</div>`:""}
+        <div class="acts">${acts||""}<button class="btn ghost" style="padding:6px 10px" onclick="toggleDetail(${a.job_id},this)">Details ▾</button></div>
+        <div class="act-detail" id="det-${a.job_id}" style="display:none"></div>
       </div>
       ${thumb}
     </div>`;
   }).join("");
   hydrateShots();
+}
+/* in-depth per-application detail: timeline, every answer, filled fields, timestamps */
+async function toggleDetail(jobId,btn){
+  const box=document.getElementById("det-"+jobId);if(!box)return;
+  if(box.style.display!=="none"){box.style.display="none";if(btn)btn.textContent="Details ▾";return;}
+  if(btn)btn.textContent="Details ▴";box.style.display="block";
+  if(box.dataset.loaded){return;}
+  box.innerHTML='<div class="sub" style="padding:6px 0">Loading…</div>';
+  let d;try{d=await fetch("/api/application?job="+jobId,{headers:authHeaders()}).then(x=>x.json());}catch(e){d=null;}
+  if(!d||!d.ok){box.innerHTML='<div class="sub">Couldn\'t load details.</div>';return;}
+  box.dataset.loaded="1";box.innerHTML=renderDetail(d);
+}
+function fmtTs(t){if(!t)return"";try{return new Date(t.includes("T")?t:t+"T00:00:00Z").toLocaleString();}catch(e){return t;}}
+function renderDetail(d){
+  const tl=(d.events||[]).slice().reverse().map(e=>{const lab=(window.ACT_LABELS&&ACT_LABELS[e.status])||e.status;return `<div class="dt-ev"><span class="dt-dot"></span><b>${esc(lab)}</b><span class="sub"> · ${fmtTs(e.at)}${e.backend?" · "+esc(e.backend):""}</span>${e.detail?`<div class="sub" style="margin-left:14px">${esc(e.detail)}</div>`:""}</div>`;}).join("")||'<div class="sub">No timeline yet.</div>';
+  const ans=(d.answers||[]).map(x=>`<div class="dt-qa"><div class="dt-q">${esc(x.q)}</div><div class="dt-a">${esc(x.a)}</div></div>`).join("")||'<div class="sub">No custom answers recorded.</div>';
+  const filled=(d.filled||[]).concat(d.submitted_fields||[]).filter(Boolean);
+  const meta=[["Backend",d.backend],["Attempts",d.attempts],["Created",fmtTs(d.created_at)],["Submitted",fmtTs(d.submitted_at)],["Confirmed",fmtTs(d.confirmed_at)+(d.confirmed_via?" ("+d.confirmed_via+")":"")],["Next retry",fmtTs(d.next_retry_at)]].filter(r=>r[1]&&String(r[1]).trim());
+  return `<div class="dt-wrap">
+    <div class="dt-sec"><div class="dt-h">Timeline</div>${tl}</div>
+    <div class="dt-cols">
+      <div class="dt-sec"><div class="dt-h">Answers submitted</div>${ans}</div>
+      <div class="dt-sec"><div class="dt-h">Fields filled</div>${filled.length?filled.map(f=>`<span class="tag">${esc(f)}</span>`).join(" "):'<div class="sub">—</div>'}
+        <div class="dt-h" style="margin-top:12px">Record</div>${meta.map(r=>`<div class="dt-meta"><span class="sub">${r[0]}</span><span>${esc(String(r[1]))}</span></div>`).join("")}</div>
+    </div></div>`;
 }
 /* fetch screenshots WITH the auth header (never the token in a URL) → blob URLs */
 const _shotCache={};

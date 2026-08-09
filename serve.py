@@ -351,11 +351,14 @@ def _mirror_application(user, job_id, res, answers, rec, resume_html=""):
         sent = status in ("confirmed", "submitted_unconfirmed")
         now_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         prior = sb.select("applications", {"user_id": f"eq.{user}", "job_id": f"eq.{job_id}",
-                                           "select": "attempts,status,submitted_at"}) or []
+                                           "select": "attempts,status,submitted_at,receipt"}) or []
         p = prior[0] if prior else {}
         # idempotency: once sent/confirmed, don't downgrade on a subsequent attempt
         if p.get("status") in ("confirmed",) and status != "confirmed":
             return
+        events = ((p.get("receipt") or {}).get("events") or [])
+        rec = dict(rec or {}); rec["events"] = (events + [{"at": now_iso, "status": status,
+                     "detail": rec.get("detail"), "backend": rec.get("backend")}])[-20:]
         row = {"user_id": user, "job_id": job_id, "status": status,
                "answers": answers, "receipt": rec,
                "attempts": ((p.get("attempts") or 0) + 1),
@@ -715,6 +718,41 @@ def applications_feed(user):
         counts[r["status"]] = counts.get(r["status"], 0) + 1
     return {"ok": True, "count": len(out), "counts": counts, "applications": out}
 
+def application_detail(user, job_id):
+    """Everything we know about one application — the full audit: status timeline, every
+    answer submitted, the fields filled, backend, attempts, timestamps."""
+    rows = sb.select("applications", {"user_id": f"eq.{user}", "job_id": f"eq.{job_id}", "limit": "1",
+            "select": "job_id,status,attempts,submitted_at,confirmed_at,created_at,next_retry_at,answers,receipt"}) or []
+    if not rows:
+        return {"ok": False, "detail": "not found"}
+    a = rows[0]; rec = a.get("receipt") or {}
+    st = a.get("status") or "draft"
+    label, tone = _STATUS_LABELS.get(st, (st, "neutral"))
+    jrow = sb.select("jobs", {"id": f"eq.{job_id}", "select": "title,company_slug,url,location,vendor", "limit": "1"})
+    j = jrow[0] if jrow else {}
+    # answers as an ordered list, hiding builtins that aren't interesting
+    ans = a.get("answers") or {}
+    answers = [{"q": k, "a": v} for k, v in ans.items() if v not in (None, "") and not str(k).startswith("_")]
+    filled = rec.get("filled") or {}
+    submitted_fields = rec.get("submitted_fields") or rec.get("submitted") or []
+    return {"ok": True, "detail_ok": True,
+            "job_id": job_id, "title": j.get("title") or rec.get("job") or "",
+            "company": j.get("company_slug") or "", "url": j.get("url") or rec.get("url") or "",
+            "location": j.get("location") or "", "vendor": j.get("vendor") or "",
+            "status": st, "label": label, "tone": tone,
+            "backend": rec.get("backend") or "", "detail": rec.get("detail") or "",
+            "attempts": a.get("attempts") or 0,
+            "created_at": a.get("created_at") or "", "submitted_at": a.get("submitted_at") or "",
+            "confirmed_at": a.get("confirmed_at") or "", "next_retry_at": a.get("next_retry_at") or "",
+            "confirmed_via": rec.get("confirmed_via") or "",
+            "events": rec.get("events") or [],
+            "answers": answers,
+            "filled": [k for k, v in filled.items() if v],
+            "submitted_fields": [f.get("label") or f.get("name") for f in submitted_fields if isinstance(f, dict)][:20],
+            "unfilled": [u.get("label") for u in (rec.get("unfilled_required") or []) if isinstance(u, dict) and u.get("label")],
+            "has_shot": bool(rec.get("screenshot")),
+            "has_resume": bool(a.get("job_id"))}
+
 class H(SimpleHTTPRequestHandler):
     def _json(self, code, obj):
         data = json.dumps(obj).encode()
@@ -805,6 +843,15 @@ class H(SimpleHTTPRequestHandler):
         if urllib.parse.urlparse(self.path).path == "/api/shot":
             qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
             return self._send_shot(_req_user(self), (qs.get("job") or [""])[0])
+        if urllib.parse.urlparse(self.path).path == "/api/application":
+            if not (sb and sb.is_configured()):
+                return self._json(200, {"ok": False, "status": "no_db"})
+            qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            jid = (qs.get("job") or [""])[0]
+            try:
+                return self._json(200, application_detail(_req_user(self), jid))
+            except Exception as e:
+                return self._json(200, {"ok": False, "detail": str(e)[:160]})
         if urllib.parse.urlparse(self.path).path == "/api/application-resume":
             if not (sb and sb.is_configured()):
                 return self._json(200, {"ok": False, "status": "no_db"})

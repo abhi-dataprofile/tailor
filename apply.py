@@ -222,8 +222,13 @@ def _record(user_id, job, res, ans, apply_id, blocked, resume_html=""):
         status = classify(res)
         sent = status in ("confirmed", "submitted_unconfirmed")
         now_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-        prior = sb.select("applications", {"user_id": f"eq.{user_id}", "job_id": f"eq.{job['id']}", "select": "attempts"})
+        prior = sb.select("applications", {"user_id": f"eq.{user_id}", "job_id": f"eq.{job['id']}", "select": "attempts,receipt"})
         attempts = ((prior[0].get("attempts") if prior else 0) or 0) + 1
+        # keep a status-change timeline across attempts (in-depth tracking) — cap to last 20
+        events = ((prior[0].get("receipt") or {}).get("events") if prior else None) or []
+        events = (events + [{"at": now_iso, "status": status, "detail": res.get("detail"),
+                             "backend": res.get("backend")}])[-20:]
+        rec["events"] = events
         row = {"user_id": user_id, "job_id": job["id"], "status": status, "human_in_loop": False,
                "answers": ans, "receipt": rec, "attempts": attempts, "next_retry_at": None,
                "submitted_at": now_iso if sent else None,

@@ -294,6 +294,18 @@ def run(user):
             continue
         minsc, cap = cfg.get("min_score", MIN_SCORE), cfg.get("max_per_run", MAX_PER_RUN)
         review = (cfg.get("mode") or "auto") == "review"   # 'review' → prepare only, wait for Submit
+        # honor the control-board execution knobs (single-threaded run → per-user override is safe)
+        _ex = ((prof.get("data") or {}).get("orchestration") or {}).get("execution") or {}
+        _mo = ((prof.get("data") or {}).get("orchestration") or {}).get("modes") or {}
+        global DOMAIN_MIN_GAP, MAX_RETRIES, CLAIM_TTL_MIN
+        try:
+            if _ex.get("domain_gap") is not None: DOMAIN_MIN_GAP = float(_ex["domain_gap"])
+            if _ex.get("retries") is not None: MAX_RETRIES = int(_ex["retries"])
+            if _ex.get("claim_ttl") is not None: CLAIM_TTL_MIN = int(_ex["claim_ttl"])
+        except Exception:
+            pass
+        if _mo.get("paused"):                              # board "pause" → skip this user this cycle
+            print(f"[{u['user_id'][:8]}] paused"); continue
         ujs = sb.select("user_jobs", {"user_id": f"eq.{u['user_id']}", "select": "job_id,score", "order": "score.desc", "limit": "200"})
         done = {r["job_id"] for r in sb.select("applications", {"user_id": f"eq.{u['user_id']}", "select": "job_id,status"})
                 if r.get("status") in SETTLED}

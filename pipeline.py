@@ -65,11 +65,18 @@ def _which_provider():
         return llm.PROVIDER
     return (llm.available() or ["none"])[0]
 
+def _cfg(profile):
+    return (profile.get("data") or {}).get("orchestration") or {}
+
 def tailor(profile, job):
+    import prompts
+    cfg = _cfg(profile)
+    sum_sys = prompts.get(cfg, "summary") or _SUM_SYS
+    temp = float((cfg.get("tailor") or {}).get("temp") or 0.4)
     skills = ", ".join(profile.get("skills") or [])
     ctx = (f"CANDIDATE SUMMARY: {profile.get('summary','')}\nCANDIDATE SKILLS: {skills}\n"
            f"TARGET ROLE: {job.get('title','')}\nROLE DESCRIPTION: {(job.get('description') or '')[:2000]}")
-    summary = llm.gen(_SUM_SYS, ctx, temp=0.4, max_tokens=220)
+    summary = llm.gen(sum_sys, ctx, temp=temp, max_tokens=220)
     obj = _parse_json(llm.gen(_BUL_SYS, ctx, json_mode=True, temp=0.5, max_tokens=400)) or {}
     bullets = obj.get("bullets") if isinstance(obj, dict) else (obj if isinstance(obj, list) else [])
     bullets = [b for b in (bullets or []) if isinstance(b, str)][:3]
@@ -97,14 +104,14 @@ def _clean_bullet(x, fallback):
         return fallback
     return s
 
-def _rewrite_bullets(bullets, job):
+def _rewrite_bullets(bullets, job, sys_prompt=None):
     bullets = [str(b).strip() for b in (bullets or []) if str(b).strip()]
     if not bullets:
         return bullets
     ctx = (f"TARGET ROLE: {job.get('title','')}\nROLE DESCRIPTION: {(job.get('description') or '')[:1400]}\n"
            f"BULLETS (JSON): {json.dumps(bullets)}")
     try:
-        obj = _parse_json(llm.gen(_REWRITE_SYS, ctx, json_mode=True, temp=0.3, max_tokens=600))
+        obj = _parse_json(llm.gen(sys_prompt or _REWRITE_SYS, ctx, json_mode=True, temp=0.3, max_tokens=600))
         out = obj.get("bullets") if isinstance(obj, dict) else (obj if isinstance(obj, list) else None)
         if isinstance(out, list) and len(out) == len(bullets):
             return [_clean_bullet(o, bullets[i]) for i, o in enumerate(out)]
@@ -124,13 +131,18 @@ def _rank_projects(projects, job):
 def tailor_full(profile, job, max_bullets_per_role=6, max_projects=3):
     """Produce a fully-tailored profile: role-targeted summary, the candidate's REAL experience
     bullets rewritten to the role, and projects ranked by fit. Caps bullets/projects to lean
-    toward one page WITHOUT dropping real roles. Returns (tailored_profile, meta)."""
+    toward one page WITHOUT dropping real roles. Uses the config's editable prompts + settings."""
+    import prompts
+    cfg = _cfg(profile)
+    tcfg = cfg.get("tailor") or {}
+    mbpr = int(tcfg.get("bullets_per_role") or max_bullets_per_role)
+    bullets_sys = prompts.get(cfg, "bullets") or _REWRITE_SYS
     data = profile.get("data") or {}
     summary = tailor(profile, job).get("summary") or profile.get("summary") or ""
     exp = []
     for e in (data.get("exp") or []):
-        rb = _rewrite_bullets(e.get("bullets") or [], job)
-        exp.append({**e, "bullets": rb[:max_bullets_per_role]})
+        rb = _rewrite_bullets(e.get("bullets") or [], job, bullets_sys)
+        exp.append({**e, "bullets": rb[:mbpr]})
     proj = _rank_projects(data.get("proj") or [], job)[:max_projects]
     tprofile = {**profile, "summary": summary, "data": {**data, "exp": exp, "proj": proj}}
     return tprofile, {"summary": summary, "provider": _which_provider()}

@@ -275,6 +275,16 @@ a{color:var(--primary-tint)}
   .ag-le .t{font-family:"JetBrains Mono";font-size:11px;color:var(--ink-faint);white-space:nowrap}
   .ag-le .co{font-weight:700;color:var(--ink)}
   .ag-le .msg{color:var(--ink-soft);flex:1;min-width:0}
+  .ag-panels{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:16px;margin-bottom:20px}
+  .ag-panels .ag-panel{margin-bottom:0}
+  .agr{font-family:"JetBrains Mono";font-size:9.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-faint);background:var(--line-soft,#f0f0ea);padding:1px 6px;border-radius:5px;vertical-align:middle}
+  .ag-savebar{position:sticky;bottom:0;background:rgba(246,246,242,.9);backdrop-filter:blur(8px);border-top:1px solid var(--line);padding:14px 0;margin-top:8px;display:flex;align-items:center;gap:12px;z-index:5}
+  .agp-item{border:1px solid var(--line);border-radius:11px;margin-bottom:10px;overflow:hidden}
+  .agp-head{display:flex;align-items:center;justify-content:space-between;padding:9px 13px;background:var(--card-2,#faf9f4);cursor:pointer}
+  .agp-head b{font-size:13px}.agp-head .rt{font-size:11px;color:var(--ink-faint)}
+  .agp-body{padding:0 13px 12px}
+  .agp-body textarea{width:100%;min-height:110px;border:1px solid var(--line);border-radius:8px;padding:9px 11px;font:inherit;font-size:12.5px;line-height:1.5;resize:vertical;background:#fff}
+  .agp-reset{border:none;background:transparent;color:var(--fair,#a1554a);font:600 11px "Inter";cursor:pointer;text-decoration:underline;margin-top:6px}
   </style>
   <div class="view" id="v-agent">
     <div class="sechead"><h2>Agent control board</h2><span class="sub" id="agSub">orchestration · evals · logs · prompts</span>
@@ -282,22 +292,88 @@ a{color:var(--primary-tint)}
 
     <div class="ag-grid" id="agEvals"></div>
 
-    <div class="ag-panel">
-      <h3>Orchestration</h3>
-      <p class="hint">How the background agent runs. Applies to your top matches only.</p>
-      <div class="ag-row">
-        <label class="ag-fld" style="flex-direction:row;align-items:center;gap:8px"><input type="checkbox" id="agEnabled"> Auto-apply enabled</label>
-        <div class="ag-fld"><span>Mode</span>
+    <div class="ag-panels" id="agPanels">
+      <div class="ag-panel">
+        <h3>Run &amp; modes</h3><p class="hint">Whether the agent runs, how much, and who clicks Submit.</p>
+        <div class="ag-row">
+          <label class="ag-fld" style="flex-direction:row;align-items:center;gap:8px"><input type="checkbox" data-c="modes.enabled"> Auto-apply enabled</label>
+          <label class="ag-fld" style="flex-direction:row;align-items:center;gap:8px"><input type="checkbox" data-c="modes.paused"> Pause</label>
+        </div>
+        <div class="ag-fld" style="margin-top:12px"><span>Mode</span>
           <div class="ag-seg" id="agMode"><button data-m="auto" onclick="agSetMode('auto')">Auto-submit</button><button data-m="review" onclick="agSetMode('review')">Review queue</button></div></div>
-        <label class="ag-fld"><span>Min match score</span><input type="number" id="agMin" min="0" max="100" style="width:90px"></label>
-        <label class="ag-fld"><span>Max per run</span><input type="number" id="agMax" min="1" max="100" style="width:90px"></label>
+        <div class="ag-row" style="margin-top:12px">
+          <label class="ag-fld"><span>Min match score</span><input type="number" data-c="modes.min_score" min="0" max="100" style="width:90px"></label>
+          <label class="ag-fld"><span>Max per run</span><input type="number" data-c="modes.max_per_run" min="1" max="100" style="width:90px"></label>
+          <label class="ag-fld"><span>Daily cap <span class="agr">restart</span></span><input type="number" data-c="modes.daily_cap" min="0" style="width:90px"></label>
+        </div>
       </div>
-      <div class="ag-fld" style="margin-top:14px"><span>Candidate persona <span style="color:var(--ink-faint)">— frames ambiguous non-sensitive answers (sensitive still come only from your saved answers)</span></span>
-        <textarea id="agPersona" placeholder="e.g. International student on F-1/OPT; will require H-1B sponsorship; authorized on OPT."></textarea></div>
-      <div class="ag-fld" style="margin-top:12px"><span>Answer prompt <span style="color:var(--ink-faint)">— extra guidance for how the AI writes free-text answers</span></span>
-        <textarea id="agPrompt" placeholder="e.g. Emphasize data-engineering impact and quantified results. Keep answers under 60 words. Professional, first person."></textarea></div>
-      <div style="margin-top:14px"><button class="btn accent" onclick="saveAgent(this)">Save orchestration</button> <span id="agSaved" class="sub"></span></div>
+
+      <div class="ag-panel">
+        <h3>Tailoring</h3><p class="hint">The résumé engine. Prompts are edited in the Prompts panel below.</p>
+        <div class="ag-fld"><span>One-page</span>
+          <div class="ag-seg" id="agOnePage"><button data-o="prefer" onclick="agSetOne('prefer')">Prefer</button><button data-o="force" onclick="agSetOne('force')">Force</button></div></div>
+        <div class="ag-row" style="margin-top:12px">
+          <label class="ag-fld"><span>Bullets per role</span><input type="number" data-c="tailor.bullets_per_role" min="1" max="12" style="width:90px"></label>
+          <label class="ag-fld"><span>Creativity (temp)</span><input type="number" data-c="tailor.temp" min="0" max="1" step="0.1" style="width:90px"></label>
+        </div>
+      </div>
+
+      <div class="ag-panel">
+        <h3>Answers</h3><p class="hint">How questions get answered. Sensitive ones always come only from your saved answers.</p>
+        <div class="ag-fld"><span>Candidate persona <span class="muted">— frames ambiguous non-sensitive answers</span></span>
+          <textarea data-c="answers.persona" placeholder="e.g. International student on F-1/OPT; will require H-1B sponsorship; authorized on OPT."></textarea></div>
+        <div class="ag-fld" style="margin-top:12px"><span>Answer guidance <span class="muted">— tone/length for free-text answers (appended to the answer prompt)</span></span>
+          <textarea data-c="answers.answer_prompt" placeholder="e.g. Emphasize data-engineering impact and quantified results. Under 60 words. First person."></textarea></div>
+        <div class="ag-row" style="margin-top:12px">
+          <label class="ag-fld" style="flex-direction:row;align-items:center;gap:8px"><input type="checkbox" data-c="answers.choice_default_both"> Prefer "Both/Any" on location choices</label>
+          <label class="ag-fld" style="flex-direction:row;align-items:center;gap:8px"><input type="checkbox" data-c="answers.cover_letter"> Generate cover letter <span class="agr">soon</span></label>
+        </div>
+      </div>
+
+      <div class="ag-panel">
+        <h3>Execution</h3><p class="hint">The browser worker.</p>
+        <div class="ag-row">
+          <label class="ag-fld" style="flex-direction:row;align-items:center;gap:8px"><input type="checkbox" data-c="execution.headed"> Visible Chrome <span class="agr">restart</span></label>
+          <label class="ag-fld" style="flex-direction:row;align-items:center;gap:8px"><input type="checkbox" data-c="execution.persist"> Warm profile <span class="agr">restart</span></label>
+        </div>
+        <div class="ag-row" style="margin-top:12px">
+          <label class="ag-fld"><span>Per-board gap (s)</span><input type="number" data-c="execution.domain_gap" min="0" style="width:80px"></label>
+          <label class="ag-fld"><span>Retries</span><input type="number" data-c="execution.retries" min="0" max="6" style="width:70px"></label>
+          <label class="ag-fld"><span>Claim TTL (min)</span><input type="number" data-c="execution.claim_ttl" min="1" style="width:80px"></label>
+          <label class="ag-fld"><span>Page timeout (s) <span class="agr">restart</span></span><input type="number" data-c="execution.timeout" min="10" style="width:80px"></label>
+        </div>
+      </div>
+
+      <div class="ag-panel">
+        <h3>Sources &amp; match <span class="agr">restart</span></h3><p class="hint">Crawler cadence and how jobs are ranked. Applies on worker restart.</p>
+        <div class="ag-row">
+          <label class="ag-fld"><span>Refresh (hrs)</span><input type="number" data-c="crawl.refresh_hours" min="1" style="width:80px"></label>
+          <label class="ag-fld"><span>Batch/cycle</span><input type="number" data-c="crawl.batch" min="10" style="width:80px"></label>
+          <label class="ag-fld"><span>Concurrency</span><input type="number" data-c="crawl.concurrency" min="1" max="32" style="width:80px"></label>
+        </div>
+        <div class="ag-row" style="margin-top:12px">
+          <label class="ag-fld"><span>Skill weight</span><input type="number" data-c="match.skill_weight" min="1" max="30" style="width:80px"></label>
+          <label class="ag-fld" style="flex-direction:row;align-items:center;gap:8px"><input type="checkbox" data-c="match.recency_boost"> Recency boost</label>
+          <label class="ag-fld"><span>Pool size</span><input type="number" data-c="match.pool" min="60" max="1000" style="width:90px"></label>
+        </div>
+      </div>
+
+      <div class="ag-panel">
+        <h3>Model <span class="agr">restart</span></h3><p class="hint">The brain. Provider/model apply on worker restart.</p>
+        <div class="ag-row">
+          <label class="ag-fld"><span>Provider</span>
+            <select data-c="model.provider"><option value="auto">auto</option><option value="claude">claude</option><option value="gemini">gemini</option><option value="openai">openai</option><option value="custom">custom</option><option value="ollama">ollama</option></select></label>
+          <label class="ag-fld"><span>Model</span><input type="text" data-c="model.model" placeholder="(provider default)" style="width:200px"></label>
+        </div>
+      </div>
     </div>
+
+    <div class="ag-panel">
+      <h3>Prompts</h3><p class="hint">Every model prompt the agent uses — edit any, or reset to the default. These drive tailoring and answers (one definition, no duplication).</p>
+      <div id="agPrompts"></div>
+    </div>
+
+    <div class="ag-savebar"><button class="btn accent" onclick="saveOrch(this)">Save all orchestration</button> <span id="agSaved" class="sub"></span></div>
 
     <div class="ag-panel">
       <h3>Agent log</h3>
@@ -729,30 +805,22 @@ function saveMissing(url,label){
   toast("Saved — re-applying with your answers");autoApply(url,null);
 }
 /* ===================== AGENT CONTROL BOARD ===================== */
-let AG_MODE="auto";
+let AG_MODE="auto",AG_ONE="prefer",AG_CFG=null;
+const AG_PROMPTS=[["understand","Understand the role"],["summary","Tailored summary"],["bullets","Rewrite experience bullets"],["projects","Suggest projects"],["cover_letter","Cover letter"]];
 async function loadAgent(){
-  let s,l;
-  try{[s,l]=await Promise.all([
+  let o,s,l;
+  try{[o,s,l]=await Promise.all([
+    fetch("/api/agent/orch",{headers:authHeaders()}).then(x=>x.json()),
     fetch("/api/agent/stats",{headers:authHeaders()}).then(x=>x.json()),
-    fetch("/api/agent/logs",{headers:authHeaders()}).then(x=>x.json())]);}catch(e){s=l=null;}
-  if(!s||!s.ok){$("agEvals").innerHTML='<div class="sub">'+((s&&s.status==="no_db")?"Connect Supabase to see agent stats.":"Couldn't load stats.")+'</div>';}
-  else renderEvals(s);
-  if(s&&s.ok&&s.config)fillAgentConfig(s.config);
+    fetch("/api/agent/logs",{headers:authHeaders()}).then(x=>x.json())]);}catch(e){}
+  if(s&&s.ok)renderEvals(s);else if($("agEvals"))$("agEvals").innerHTML='<div class="sub">'+((s&&s.status==="no_db")?"Connect Supabase to see agent stats.":"Couldn't load stats.")+'</div>';
+  if(o&&o.ok&&o.config){AG_CFG=o.config;fillOrch(o.config);}
   renderLog((l&&l.logs)||[]);
 }
 function tile(n,label,tone){return `<div class="ag-tile ${tone||''}"><div class="n">${n}</div><div class="l">${esc(label)}</div></div>`;}
 function renderEvals(s){
   const crawlNew=(s.crawl||[]).reduce((a,c)=>a+(c.new_jobs||0),0);
-  $("agEvals").innerHTML=[
-    tile(s.total||0,"Applications",""),
-    tile((s.applied||0),"Applied ✓","good"),
-    tile((s.sent||0),"Sent","info"),
-    tile((s.needs_you||0),"Needs you","warn"),
-    tile((s.captcha||0),"Captcha","warn"),
-    tile((s.failed||0),"Failed","bad"),
-    tile((s.success_rate||0)+"%","Reach rate",(s.success_rate>=50?"good":"")),
-    tile(crawlNew,"New jobs (recent)","")
-  ].join("");
+  $("agEvals").innerHTML=[tile(s.total||0,"Applications",""),tile(s.applied||0,"Applied ✓","good"),tile(s.sent||0,"Sent","info"),tile(s.needs_you||0,"Needs you","warn"),tile(s.captcha||0,"Captcha","warn"),tile(s.failed||0,"Failed","bad"),tile((s.success_rate||0)+"%","Reach rate",(s.success_rate>=50?"good":"")),tile(crawlNew,"New jobs (recent)","")].join("");
 }
 function renderLog(logs){
   const el=$("agLog");if(!el)return;
@@ -761,20 +829,38 @@ function renderLog(logs){
 }
 function labelTone(st){return ({confirmed:"good",submitted_unconfirmed:"info",filling:"info",awaiting_review:"info",needs_you:"warn",blocked_captcha:"warn",failed_transient:"warn",failed_permanent:"bad"})[st]||"neutral";}
 function agSetMode(m){AG_MODE=m;document.querySelectorAll("#agMode button").forEach(b=>b.classList.toggle("on",b.dataset.m===m));}
-function fillAgentConfig(c){
-  if($("agEnabled"))$("agEnabled").checked=!!c.enabled;
-  agSetMode(c.mode||"auto");
-  if($("agMin"))$("agMin").value=c.min_score!=null?c.min_score:45;
-  if($("agMax"))$("agMax").value=c.max_per_run!=null?c.max_per_run:10;
-  if($("agPersona"))$("agPersona").value=c.persona||"";
-  if($("agPrompt"))$("agPrompt").value=c.answer_prompt||"";
+function agSetOne(o){AG_ONE=o;document.querySelectorAll("#agOnePage button").forEach(b=>b.classList.toggle("on",b.dataset.o===o));}
+function _cget(obj,path){return path.split(".").reduce((a,k)=>(a&&a[k]!=null)?a[k]:undefined,obj);}
+function fillOrch(c){
+  document.querySelectorAll("#agPanels [data-c]").forEach(el=>{
+    const v=_cget(c,el.dataset.c);
+    if(el.type==="checkbox")el.checked=!!v;else el.value=(v==null?"":v);
+  });
+  agSetMode((c.modes&&c.modes.mode)||"auto");
+  agSetOne((c.tailor&&c.tailor.one_page)||"prefer");
+  renderPrompts(c);
 }
-async function saveAgent(btn){
+function renderPrompts(c){
+  const def=c.prompt_defaults||{},cur=c.prompts||{};
+  $("agPrompts").innerHTML=AG_PROMPTS.map(([k,label])=>{
+    const isDef=(cur[k]||"")===(def[k]||"");
+    return `<div class="agp-item"><div class="agp-head" onclick="agpToggle('${k}')"><b>${esc(label)}</b><span class="rt">${isDef?"default":"customized"} · ${k}</span></div><div class="agp-body" id="agp-${k}" style="display:none"><textarea data-p="${k}">${esc(cur[k]||"")}</textarea><button class="agp-reset" onclick="agpReset('${k}')">Reset to default</button></div></div>`;
+  }).join("");
+}
+function agpToggle(k){const b=$("agp-"+k);if(b)b.style.display=b.style.display==="none"?"block":"none";}
+function agpReset(k){const ta=document.querySelector("#agp-"+k+" textarea");if(ta&&AG_CFG)ta.value=(AG_CFG.prompt_defaults||{})[k]||"";}
+async function saveOrch(btn){
   if(btn){btn.disabled=true;btn.textContent="Saving…";}
-  const body={enabled:$("agEnabled").checked,mode:AG_MODE,min_score:+$("agMin").value||45,max_per_run:+$("agMax").value||10,persona:$("agPersona").value,answer_prompt:$("agPrompt").value};
-  let r;try{r=await fetch("/api/agent/config",{method:"POST",headers:{"Content-Type":"application/json",...authHeaders()},body:JSON.stringify(body)}).then(x=>x.json());}catch(e){r=null;}
-  if(btn){btn.disabled=false;btn.textContent="Save orchestration";}
-  $("agSaved").textContent=(r&&r.ok)?"Saved ✓":"Couldn't save";setTimeout(()=>{if($("agSaved"))$("agSaved").textContent="";},2500);
+  const body={modes:{mode:AG_MODE},tailor:{one_page:AG_ONE},crawl:{},match:{},answers:{},execution:{},model:{},prompts:{}};
+  document.querySelectorAll("#agPanels [data-c]").forEach(el=>{
+    const p=el.dataset.c.split("."),sec=p[0],key=p[1];body[sec]=body[sec]||{};
+    body[sec][key]=el.type==="checkbox"?el.checked:(el.type==="number"?(el.value===""?null:+el.value):el.value);
+  });
+  document.querySelectorAll("#agPrompts [data-p]").forEach(ta=>{body.prompts[ta.dataset.p]=ta.value;});
+  let r;try{r=await fetch("/api/agent/config",{method:"POST",headers:{"Content-Type":"application/json",...authHeaders()},body:JSON.stringify(body)}).then(x=>x.json());}catch(e){}
+  if(btn){btn.disabled=false;btn.textContent="Save all orchestration";}
+  if(r&&r.ok&&r.config){AG_CFG=r.config;renderPrompts(r.config);}
+  if($("agSaved")){$("agSaved").textContent=(r&&r.ok)?"Saved ✓":"Couldn't save";setTimeout(()=>{if($("agSaved"))$("agSaved").textContent="";},2500);}
 }
 function showView(v,noHash){if(!$("v-"+v))v="dash";document.querySelectorAll(".view").forEach(el=>el.classList.remove("on"));$("v-"+v).classList.add("on");
   document.querySelectorAll(".nav button[data-view]").forEach(b=>b.classList.toggle("on",b.dataset.view===v));

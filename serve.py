@@ -786,35 +786,88 @@ def agent_stats(user):
             "counts": {k: v for k, v in counts.items() if k},
             "by_backend": dict(by_backend), "crawl": crawl, "config": agent_config(user)}
 
-def agent_config(user):
-    """The orchestration knobs the control board edits."""
+import prompts as _prompts
+
+def _envd(k, d):
+    v = os.environ.get(k)
+    try: return type(d)(v) if v not in (None, "") else d
+    except Exception: return d
+
+def orchestration(user):
+    """The FULL orchestration config the control board edits — merged: defaults ← env ← stored.
+    Read by the background agent (apply.py) and the tailoring pipeline."""
     prof = sb.select("profiles", {"user_id": f"eq.{user}", "select": "data", "limit": "1"}) or []
     data = (prof[0].get("data") if prof else {}) or {}
+    o = data.get("orchestration") or {}
     aa = data.get("auto_apply") or {}
     st = data.get("standing") or {}
-    return {"enabled": bool(aa.get("enabled")), "mode": aa.get("mode") or "auto",
-            "min_score": aa.get("min_score", 45), "max_per_run": aa.get("max_per_run", 10),
-            "persona": st.get("_persona", ""), "answer_prompt": st.get("_answer_prompt", "")}
+    def g(sec, k, d): return ((o.get(sec) or {}).get(k)) if (o.get(sec) or {}).get(k) is not None else d
+    pr = o.get("prompts") or {}
+    return {
+        "modes": {"enabled": bool(aa.get("enabled")), "mode": aa.get("mode") or "auto",
+                  "min_score": aa.get("min_score", _envd("APPLY_MIN_SCORE", 45)),
+                  "max_per_run": aa.get("max_per_run", _envd("APPLY_MAX_PER_USER", 10)),
+                  "daily_cap": g("modes", "daily_cap", 0), "paused": bool(g("modes", "paused", False))},
+        "crawl": {"refresh_hours": g("crawl", "refresh_hours", _envd("JOB_REFRESH_HOURS", 1)),
+                  "batch": g("crawl", "batch", _envd("CRAWL_BATCH", 90)),
+                  "concurrency": g("crawl", "concurrency", _envd("CRAWL_CONCURRENCY", 16))},
+        "match": {"skill_weight": g("match", "skill_weight", 13),
+                  "recency_boost": bool(g("match", "recency_boost", True)),
+                  "pool": g("match", "pool", 300)},
+        "tailor": {"one_page": g("tailor", "one_page", "prefer"),
+                   "bullets_per_role": g("tailor", "bullets_per_role", 6),
+                   "temp": g("tailor", "temp", 0.4)},
+        "answers": {"persona": st.get("_persona", "") or os.environ.get("APPLY_PERSONA", ""),
+                    "answer_prompt": st.get("_answer_prompt", ""),
+                    "cover_letter": bool(g("answers", "cover_letter", False)),
+                    "choice_default_both": bool(g("answers", "choice_default_both", True))},
+        "execution": {"headed": bool(g("execution", "headed", os.environ.get("APPLY_HEADED") == "1")),
+                      "persist": bool(g("execution", "persist", os.environ.get("APPLY_PERSIST", "1") != "0")),
+                      "domain_gap": g("execution", "domain_gap", _envd("APPLY_DOMAIN_GAP", 8)),
+                      "retries": g("execution", "retries", _envd("APPLY_MAX_RETRIES", 3)),
+                      "claim_ttl": g("execution", "claim_ttl", _envd("APPLY_CLAIM_TTL_MIN", 15)),
+                      "timeout": g("execution", "timeout", 45)},
+        "model": {"provider": g("model", "provider", os.environ.get("LLM_PROVIDER", "auto")),
+                  "model": g("model", "model", ""), "temp": g("model", "temp", 0.4)},
+        "prompts": {k: (pr.get(k) if (pr.get(k) or "").strip() else _prompts.DEFAULTS.get(k, ""))
+                    for k in ("understand", "summary", "bullets", "projects", "answer", "cover_letter")},
+        "prompt_defaults": _prompts.DEFAULTS,
+    }
+
+# kept for the existing GET stats.config consumer
+def agent_config(user):
+    o = orchestration(user)
+    m, a = o["modes"], o["answers"]
+    return {"enabled": m["enabled"], "mode": m["mode"], "min_score": m["min_score"],
+            "max_per_run": m["max_per_run"], "persona": a["persona"], "answer_prompt": a["answer_prompt"]}
 
 def save_agent_config(user, body):
     prof = sb.select("profiles", {"user_id": f"eq.{user}", "select": "data", "limit": "1"}) or []
     data = (prof[0].get("data") if prof else {}) or {}
+    o = data.get("orchestration") or {}
+    for sec in ("modes", "crawl", "match", "tailor", "answers", "execution", "model", "prompts"):
+        if isinstance(body.get(sec), dict):
+            o.setdefault(sec, {}).update(body[sec])
+    data["orchestration"] = o
+    # mirror the fields the RUNNING engine reads today, so changes take effect without refactor
+    m = o.get("modes") or {}
     aa = data.get("auto_apply") or {}
-    aa["enabled"] = bool(body.get("enabled"))
-    aa["mode"] = body.get("mode") if body.get("mode") in ("auto", "review") else "auto"
-    try: aa["min_score"] = max(0, min(100, int(body.get("min_score") or 45)))
-    except Exception: aa["min_score"] = 45
-    try: aa["max_per_run"] = max(1, min(100, int(body.get("max_per_run") or 10)))
-    except Exception: aa["max_per_run"] = 10
+    aa["enabled"] = bool(m.get("enabled", aa.get("enabled")))
+    aa["mode"] = m.get("mode") if m.get("mode") in ("auto", "review") else aa.get("mode", "auto")
+    try: aa["min_score"] = max(0, min(100, int(m.get("min_score", aa.get("min_score", 45)))))
+    except Exception: pass
+    try: aa["max_per_run"] = max(1, min(100, int(m.get("max_per_run", aa.get("max_per_run", 10)))))
+    except Exception: pass
     data["auto_apply"] = aa
+    ans = o.get("answers") or {}
     st = data.get("standing") or {}
-    if "persona" in body: st["_persona"] = (body.get("persona") or "")[:600]
-    if "answer_prompt" in body: st["_answer_prompt"] = (body.get("answer_prompt") or "")[:1200]
+    if "persona" in ans: st["_persona"] = (ans.get("persona") or "")[:600]
+    if "answer_prompt" in ans: st["_answer_prompt"] = (ans.get("answer_prompt") or "")[:1400]
     data["standing"] = st
     sb.upsert("profiles", [{"user_id": user, "data": data,
               "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}],
               on_conflict="user_id", update=True)
-    return {"ok": True, "config": agent_config(user)}
+    return {"ok": True, "config": orchestration(user)}
 
 def agent_logs(user, limit=60):
     """A live feed of the agent's recent work — each attempt with its status, backend and
@@ -966,13 +1019,15 @@ class H(SimpleHTTPRequestHandler):
         if urllib.parse.urlparse(self.path).path == "/api/shot":
             qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
             return self._send_shot(_req_user(self), (qs.get("job") or [""])[0])
-        if urllib.parse.urlparse(self.path).path in ("/api/agent/stats", "/api/agent/logs"):
+        if urllib.parse.urlparse(self.path).path in ("/api/agent/stats", "/api/agent/logs", "/api/agent/orch"):
             if not (sb and sb.is_configured()):
                 return self._json(200, {"ok": False, "status": "no_db"})
             try:
-                user = _req_user(self)
-                if self.path.startswith("/api/agent/stats"):
+                user = _req_user(self); p = urllib.parse.urlparse(self.path).path
+                if p == "/api/agent/stats":
                     return self._json(200, agent_stats(user))
+                if p == "/api/agent/orch":
+                    return self._json(200, {"ok": True, "config": orchestration(user)})
                 return self._json(200, agent_logs(user))
             except Exception as e:
                 return self._json(200, {"ok": False, "detail": str(e)[:200]})

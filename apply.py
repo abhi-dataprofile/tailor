@@ -238,6 +238,11 @@ def _record(user_id, job, res, ans, apply_id, blocked, resume_html=""):
 
 def apply_one(user_id, profile, job):
     apply_id = uuid.uuid4().hex
+    # apply via the clean Greenhouse form, not a company careers-page embed (avoids most
+    # spurious captcha / no-submit-button failures).
+    canon = serve.canonical_apply_url(job)
+    if canon and canon != job.get("url"):
+        job = dict(job); job["url"] = canon
     if serve.already_applied(job["url"], apply_id):
         # applied before (e.g. interactively) — settle the row instead of leaving it 'filling'
         _record(user_id, job, {"ok": True, "status": "submitted", "sent": True, "confirmed": False,

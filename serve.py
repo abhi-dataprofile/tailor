@@ -256,6 +256,16 @@ def already_applied(url, apply_id):
         return None
     return None
 
+def canonical_apply_url(job):
+    """The clean, automatable apply form. Greenhouse jobs are often stored as a company
+    careers-page embed (monks.com/careers/…, mongodb.com/careers/…) that adds cookie walls,
+    bot-detection, and a non-standard DOM — the source of most 'captcha' / 'no submit button'
+    failures. Rewrite those to the direct Greenhouse-hosted form."""
+    j = job or {}
+    if j.get("vendor") == "greenhouse" and j.get("company_slug") and j.get("external_id"):
+        return f"https://job-boards.greenhouse.io/{j['company_slug']}/jobs/{j['external_id']}"
+    return j.get("url")
+
 def gh_apply(url, answers, resume_html):
     """Submit to Greenhouse. Returns a rich result incl. exactly which fields were
     sent and which sensitive questions were flagged — for a full audit trail."""
@@ -951,7 +961,16 @@ class H(SimpleHTTPRequestHandler):
                                         "detail": f"Daily free limit ({FREE_APPLY_LIMIT}) reached — upgrade to keep auto-applying."})
             venv = os.path.join(HERE, ".venv", "bin", "python")
             py = venv if os.path.exists(venv) else sys.executable
-            payload = json.dumps({"job": {"url": body.get("url", ""), "title": body.get("label", "")},
+            apply_url = body.get("url", "")
+            if body.get("job_id") and sb and sb.is_configured():   # prefer the clean Greenhouse form
+                try:
+                    jr = sb.select("jobs", {"id": f"eq.{body['job_id']}", "limit": "1",
+                                            "select": "vendor,company_slug,external_id,url"})
+                    if jr:
+                        apply_url = canonical_apply_url(jr[0]) or apply_url
+                except Exception:
+                    pass
+            payload = json.dumps({"job": {"url": apply_url, "title": body.get("label", "")},
                                   "answers": body.get("answers", {}) or {},
                                   "standing": body.get("standing", {}) or {},
                                   "resume_html": body.get("resume_html", "") or "", "dry": not bool(body.get("live"))})

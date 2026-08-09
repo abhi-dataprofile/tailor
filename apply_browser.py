@@ -853,11 +853,15 @@ def submit(job, answers, resume_html, standing=None, dry=True, headless=True, ti
             if full:
                 _bank.setdefault("full_name", full)
             # material the LLM may answer NON-sensitive free-text from — the candidate's own
-            # résumé + role + explicitly-provided facts (never anything invented).
-            _facts = {k: v for k, v in (standing or {}).items() if k != "_custom" and v}
+            # résumé + role + explicitly-provided facts (never anything invented). A persona
+            # (standing._persona or APPLY_PERSONA) frames ambiguous non-sensitive answers —
+            # e.g. "international student on F-1/OPT". Sensitive Qs still come ONLY from standing.
+            _facts = {k: v for k, v in (standing or {}).items() if k not in ("_custom", "_persona") and v}
+            _persona = (standing or {}).get("_persona") or os.environ.get("APPLY_PERSONA", "")
             context = ("Role: " + (job.get("title") or "") + "\nCandidate résumé:\n"
                        + _strip_html(resume_html)[:3400]
-                       + ("\nKnown facts: " + json.dumps(_facts) if _facts else ""))
+                       + ("\nKnown facts: " + json.dumps(_facts) if _facts else "")
+                       + ("\nCandidate context (assume this where a non-sensitive question is ambiguous): " + _persona if _persona else ""))
             unfilled_required = _fill_questions(frame, _bank, context)
             shot = os.path.join(OUT_DIR, f"{re.sub(r'[^a-z0-9]+','-',(job.get('title') or 'job').lower())[:40]}-{int(time.time())}.png")
             page.screenshot(path=shot, full_page=True)

@@ -19,7 +19,7 @@ create extension if not exists pg_trgm;      -- fast title search (ILIKE / trigr
 -- ---------- companies to crawl (seeded from bundled ATS datasets) ----------
 create table if not exists companies (
   id              bigint generated always as identity primary key,
-  vendor          text    not null check (vendor in ('greenhouse','lever','ashby')),
+  vendor          text    not null check (vendor in ('greenhouse','lever','ashby','smartrecruiters','recruitee')),
   slug            text    not null,
   priority        int     not null default 0,          -- well-known firms crawled first
   active          boolean not null default true,

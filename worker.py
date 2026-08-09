@@ -37,10 +37,21 @@ def _iso(dt):
     return dt.isoformat()
 
 def seed_companies():
+    # group by vendor so a not-yet-migrated vendor CHECK (e.g. new sources) fails only its own
+    # batch, not the whole seed — the migration widens companies.vendor when you run it.
     rows = [{"vendor": v, "slug": s, "priority": p} for (v, s, p) in ats.load_companies()]
-    for i in range(0, len(rows), 500):
-        sb.upsert("companies", rows[i:i + 500], on_conflict="vendor,slug", update=False)
-    print(f"[seed] {len(rows)} companies ensured")
+    ok = 0
+    by_vendor = {}
+    for r in rows:
+        by_vendor.setdefault(r["vendor"], []).append(r)
+    for v, vrows in by_vendor.items():
+        try:
+            for i in range(0, len(vrows), 500):
+                sb.upsert("companies", vrows[i:i + 500], on_conflict="vendor,slug", update=False)
+            ok += len(vrows)
+        except Exception as e:
+            print(f"[seed] skipped {len(vrows)} {v} rows ({str(e)[:80]}) — run the vendor migration to enable")
+    print(f"[seed] {ok}/{len(rows)} companies ensured")
 
 def due_companies(limit):
     cutoff = _iso(_now() - datetime.timedelta(hours=FRESH_HOURS))

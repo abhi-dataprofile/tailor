@@ -594,7 +594,7 @@ def _seniority(title):
     return "mid"
 
 # --- applyability: can the agent take this job end-to-end? ---
-_AUTO_VENDORS = ("greenhouse", "lever", "ashby")
+_AUTO_VENDORS = ("greenhouse", "lever", "ashby", "smartrecruiters", "recruitee")
 _APPLY_SIG = {}   # user -> (expiry, blocked_companies, manual_companies) — learned from past attempts
 
 def _apply_signals(user):

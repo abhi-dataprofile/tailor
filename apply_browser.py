@@ -63,6 +63,22 @@ VENDOR_PACKS = {
         "file":       ["input[type='file']"],
         "submit":     ["button:has-text('Submit Application')", "button:has-text('Submit')", "button[type='submit']"],
     },
+    "smartrecruiters": {                  # jobs.smartrecruiters.com — click Apply reveals the form
+        "first_name": ["input[name*='firstName' i]", "#firstName", "input[name*='first' i]"],
+        "last_name":  ["input[name*='lastName' i]", "#lastName", "input[name*='last' i]"],
+        "email":      ["input[name*='email' i]", "input[type='email']"],
+        "phone":      ["input[name*='phone' i]", "input[type='tel']"],
+        "file":       ["input[type='file']"],
+        "submit":     ["button:has-text('Submit')", "button:has-text('Apply')", "button[type='submit']"],
+    },
+    "recruitee": {                        # careers.<co>.com — Recruitee-hosted/embedded form
+        "first_name": ["input[name*='first' i]"],
+        "last_name":  ["input[name*='last' i]"],
+        "email":      ["input[type='email']", "input[name*='email' i]"],
+        "phone":      ["input[type='tel']", "input[name*='phone' i]"],
+        "file":       ["input[type='file']"],
+        "submit":     ["button:has-text('Apply')", "button:has-text('Submit')", "button[type='submit']"],
+    },
     "icims": {                            # *.icims.com — form usually inside an iframe (see _form_frame)
         "first_name": ["input[name*='firstname' i]", "#firstname", "input[id*='first' i]", "input[name*='first' i]"],
         "last_name":  ["input[name*='lastname' i]", "#lastname", "input[id*='last' i]", "input[name*='last' i]"],
@@ -122,6 +138,8 @@ def _vendor_of(url):
     if "ashbyhq" in u: return "ashby"
     if "greenhouse" in u: return "greenhouse"
     if "icims" in u: return "icims"
+    if "smartrecruiters" in u: return "smartrecruiters"
+    if "recruitee" in u: return "recruitee"
     return "generic"
 
 def _pack(url):

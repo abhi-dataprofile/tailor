@@ -22,7 +22,11 @@ PRIORITY = {
         "affirm","confluent","canva","duolingo","cohere","sourcegraph"],
     "ashby": ["openai","notion","ramp","linear","plaid","reddit","snowflake","benchling","confluent",
         "zapier","deel","pinecone","weaviate","cohere","runway","perplexity","harvey","cursor","replit"],
+    "smartrecruiters": ["BoschGroup","SGS","Equinox","PublicStorage","Accor","Experian","WesternDigital","Colliers","Visa","WeWork","Wayfair"],
+    "recruitee": ["bunq","personio","gorgias"],
 }
+
+_VENDORS = ("greenhouse", "lever", "ashby", "smartrecruiters", "recruitee")
 
 # ---- skill taxonomy (kept in sync with index.html's TAX) ----
 TAX = {
@@ -111,13 +115,14 @@ def _load_slugs(vendor):
 def load_companies():
     """[(vendor, slug, priority)] — priority>0 = well-known, crawled first."""
     out, seen = [], set()
-    per = {v: _load_slugs(v) for v in ("greenhouse", "lever", "ashby")}
-    for v in ("greenhouse", "lever", "ashby"):
+    per = {v: _load_slugs(v) for v in _VENDORS}
+    # PRIORITY companies are seeded even if not in the bundled slug file (curated new sources)
+    for v in _VENDORS:
         present = set(per[v])
         for slug in PRIORITY.get(v, []):
-            if slug in present and (v, slug) not in seen:
+            if (v, slug) not in seen and (slug in present or v in ("smartrecruiters", "recruitee")):
                 seen.add((v, slug)); out.append((v, slug, 100))
-    for v in ("greenhouse", "lever", "ashby"):
+    for v in _VENDORS:
         for slug in per[v]:
             if (v, slug) not in seen:
                 seen.add((v, slug)); out.append((v, slug, 0))
@@ -186,7 +191,45 @@ def _ashby(slug, timeout):
                     meta={"secondary_locations": x.get("secondaryLocations"),
                           "should_display_comp": x.get("shouldDisplayCompensationOnJobBoard")})
 
-_FETCHERS = {"greenhouse": _greenhouse, "lever": _lever, "ashby": _ashby}
+def _smartrecruiters(slug, timeout):
+    # public postings API. List is summary-only (no description) — crawl list pages and
+    # construct the posting URL; cap per company so one big employer can't dominate a cycle.
+    off = 0
+    while True:
+        data = json.loads(_http_get(f"https://api.smartrecruiters.com/v1/companies/{slug}/postings?limit=100&offset={off}", timeout))
+        items = data.get("content") or []
+        for x in items:
+            loc = x.get("location") or {}
+            locstr = loc.get("fullLocation") or ", ".join(filter(None, [loc.get("city"), (loc.get("country") or "").upper()]))
+            yield _norm("smartrecruiters", slug, x.get("id"), x.get("name"),
+                        f"https://jobs.smartrecruiters.com/{slug}/{x.get('id')}",
+                        locstr, bool(loc.get("remote")), "",
+                        department=(x.get("department") or {}).get("label", ""),
+                        employment_type=(x.get("typeOfEmployment") or {}).get("label", ""),
+                        posted_at=_iso_date(x.get("releasedDate", "")), updated_at=x.get("releasedDate", ""),
+                        meta={"function": (x.get("function") or {}).get("label"),
+                              "industry": (x.get("industry") or {}).get("label"),
+                              "experience": (x.get("experienceLevel") or {}).get("label"),
+                              "ref": x.get("refNumber"), "remote": loc.get("remote"), "hybrid": loc.get("hybrid")})
+        total = data.get("totalFound", 0); off += len(items)
+        if not items or off >= total or off >= 800:
+            break
+
+def _recruitee(slug, timeout):
+    data = json.loads(_http_get(f"https://{slug}.recruitee.com/api/offers/", timeout))
+    for x in (data.get("offers") or []):
+        desc = _strip_html((x.get("description") or "") + " " + (x.get("requirements") or ""))
+        loc = x.get("location") or ", ".join(filter(None, [x.get("city"), (x.get("country_code") or "").upper()]))
+        yield _norm("recruitee", slug, x.get("id"), x.get("title"),
+                    x.get("careers_apply_url") or x.get("careers_url"),
+                    loc, bool(x.get("hybrid")) or "remote" in (loc or "").lower(), desc,
+                    department=x.get("department", ""), employment_type=x.get("employment_type_code", ""),
+                    posted_at=_iso_date(x.get("created_at", "")), updated_at=x.get("created_at", ""),
+                    meta={"country_code": x.get("country_code"), "experience": x.get("experience_code"),
+                          "education": x.get("education_code"), "company": x.get("company_name")})
+
+_FETCHERS = {"greenhouse": _greenhouse, "lever": _lever, "ashby": _ashby,
+             "smartrecruiters": _smartrecruiters, "recruitee": _recruitee}
 
 def fetch_feed(vendor, slug, timeout=30, since=None):
     """Return normalized postings for one company. Never raises — returns [].

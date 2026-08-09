@@ -63,13 +63,65 @@ VENDOR_PACKS = {
         "file":       ["input[type='file']"],
         "submit":     ["button:has-text('Submit Application')", "button:has-text('Submit')", "button[type='submit']"],
     },
+    "icims": {                            # *.icims.com — form usually inside an iframe (see _form_frame)
+        "first_name": ["input[name*='firstname' i]", "#firstname", "input[id*='first' i]", "input[name*='first' i]"],
+        "last_name":  ["input[name*='lastname' i]", "#lastname", "input[id*='last' i]", "input[name*='last' i]"],
+        "email":      ["input[name*='email' i]", "input[type='email']", "input[id*='email' i]"],
+        "phone":      ["input[name*='phone' i]", "input[type='tel']", "input[id*='phone' i]"],
+        "file":       ["input[type='file']"],
+        "submit":     ["button:has-text('Submit')", "input[type='submit']", "button:has-text('Continue')",
+                       "button:has-text('Next')", "a:has-text('Submit')", "#quApply", "button[id*='submit' i]"],
+    },
 }
+
+# apply-form context: the main page, OR an embedded ATS iframe (iCIMS and many corporate
+# career pages load the real form inside an <iframe> the top document can't see into).
+_EMAIL_SEL = "input[type='email'], input[name*='email' i], input[autocomplete='email']"
+
+def _form_frame(page):
+    if page.query_selector(_EMAIL_SEL):
+        return page
+    for fr in page.frames:
+        try:
+            if fr == page.main_frame:
+                continue
+            if fr.query_selector(_EMAIL_SEL):
+                return fr
+            u = (fr.url or "").lower()
+            if any(k in u for k in ("icims", "greenhouse", "lever", "ashby")) and fr.query_selector("input,form"):
+                return fr
+        except Exception:
+            continue
+    return page
+
+# button/link texts that reveal or open the application form
+_APPLY_TEXTS = ["Apply for this job", "Apply for this position", "Apply now", "Apply Now",
+                "Apply online", "Apply to this job", "Start your application", "Start application",
+                "I'm interested", "Apply"]
+
+def _reveal_apply(page):
+    """Click an Apply button/link to reveal the form — searching the page AND any iframes,
+    so embedded flows (iCIMS, corporate embeds) open even when there's no direct form."""
+    scopes = [page] + [fr for fr in page.frames if fr != page.main_frame]
+    for scope in scopes:
+        if scope.query_selector(_EMAIL_SEL):
+            return
+    for scope in scopes:
+        for t in _APPLY_TEXTS:
+            for sel in (f"a:has-text('{t}')", f"button:has-text('{t}')", f"[role=button]:has-text('{t}')"):
+                try:
+                    b = scope.query_selector(sel)
+                    if b and b.is_visible():
+                        b.click(); page.wait_for_timeout(2200); return
+                except Exception:
+                    continue
 
 def _vendor_of(url):
     u = (url or "").lower()
     if "lever.co" in u: return "lever"
     if "ashbyhq" in u: return "ashby"
     if "greenhouse" in u: return "greenhouse"
+    if "icims" in u: return "icims"
     return "generic"
 
 def _pack(url):
@@ -553,18 +605,11 @@ def submit(job, answers, resume_html, standing=None, dry=True, headless=True, ti
             if _has_captcha(page):
                 return {"ok": False, "status": "captcha", "detail": "CAPTCHA/bot-check present — must be applied to manually."}
             # ensure the application form is on screen: many pages are a description with an
-            # "Apply" button, and React forms (Ashby) render async — click + wait for a field.
-            if not page.query_selector("input[type='email'], input[name*='email' i], input[autocomplete='email']"):
-                for sel in ["a:has-text('Apply for this job')","button:has-text('Apply for this job')",
-                            "a:has-text('Apply now')","button:has-text('Apply now')","a:has-text('Apply')","button:has-text('Apply')"]:
-                    try:
-                        b = page.query_selector(sel)
-                        if b and b.is_visible():
-                            b.click(); page.wait_for_timeout(2000); break
-                    except Exception:
-                        continue
+            # "Apply" button, React forms render async, and iCIMS/embeds load the form in an
+            # iframe. Reveal it (searching page + frames), then wait for a field anywhere.
+            _reveal_apply(page)
             try:
-                page.wait_for_selector("input[type='email'], input[name*='email' i], input[autocomplete='email']", timeout=9000)
+                page.wait_for_selector(_EMAIL_SEL, timeout=9000)
             except Exception:
                 pass
             # dismiss cookie/consent banners that overlay the form
@@ -576,21 +621,24 @@ def submit(job, answers, resume_html, standing=None, dry=True, headless=True, ti
                         cb.click(); page.wait_for_timeout(400); break
                 except Exception:
                     continue
-            pack = _pack(url)
+            # the form may live inside an embedded ATS iframe (iCIMS, corporate embeds) — from
+            # here on, operate on that frame (Playwright Frame shares the query/fill API).
+            frame = _form_frame(page)
+            pack = _pack(frame.url if frame is not page else url)
             # standard fields — Lever/Ashby may use one full-name field instead of first/last
             full = (str(answers.get("first_name", "")) + " " + str(answers.get("last_name", ""))).strip()
             filled = {
-                "full_name":  _fill_first(page, pack["full_name"], full),
-                "first_name": _fill_first(page, pack["first_name"], answers.get("first_name")),
-                "last_name":  _fill_first(page, pack["last_name"], answers.get("last_name")),
-                "email":      _fill_first(page, pack["email"], answers.get("email")),
-                "phone":      _fill_first(page, pack["phone"], answers.get("phone")),
+                "full_name":  _fill_first(frame, pack["full_name"], full),
+                "first_name": _fill_first(frame, pack["first_name"], answers.get("first_name")),
+                "last_name":  _fill_first(frame, pack["last_name"], answers.get("last_name")),
+                "email":      _fill_first(frame, pack["email"], answers.get("email")),
+                "phone":      _fill_first(frame, pack["phone"], answers.get("phone")),
             }
             # résumé upload (render a real PDF, attach to the vendor's file input)
             attached = False
             file_input = None
             for sel in pack["file"]:
-                file_input = page.query_selector(sel)
+                file_input = frame.query_selector(sel)
                 if file_input:
                     break
             if file_input:
@@ -606,7 +654,7 @@ def submit(job, answers, resume_html, standing=None, dry=True, headless=True, ti
                     continue
                 for sel in (f"[name='{name}']", f"#{name}"):
                     try:
-                        el = page.query_selector(sel)
+                        el = frame.query_selector(sel)
                         if el and el.is_visible():
                             (el.select_option(label=str(val)) if el.evaluate("e=>e.tagName")=="SELECT" else el.fill(str(val)))
                             break
@@ -624,7 +672,7 @@ def submit(job, answers, resume_html, standing=None, dry=True, headless=True, ti
             context = ("Role: " + (job.get("title") or "") + "\nCandidate résumé:\n"
                        + _strip_html(resume_html)[:3400]
                        + ("\nKnown facts: " + json.dumps(_facts) if _facts else ""))
-            unfilled_required = _fill_questions(page, _bank, context)
+            unfilled_required = _fill_questions(frame, _bank, context)
             shot = os.path.join(OUT_DIR, f"{re.sub(r'[^a-z0-9]+','-',(job.get('title') or 'job').lower())[:40]}-{int(time.time())}.png")
             page.screenshot(path=shot, full_page=True)
             prepared = {"filled": filled, "resume_attached": attached, "screenshot": shot, "unfilled_required": unfilled_required}
@@ -638,12 +686,30 @@ def submit(job, answers, resume_html, standing=None, dry=True, headless=True, ti
                         "detail": "Not submitted — " + str(len(unfilled_required)) +
                                   " required question(s) still need answers. Fill them and it'll submit.",
                         **prepared}
-            # LIVE submit
+            # LIVE submit — search the form frame first, then the page, and as a last resort
+            # any visible element whose text is a submit verb (workaround for non-standard forms).
             btn = None
             for sel in pack["submit"]:
-                btn = page.query_selector(sel)
-                if btn and btn.is_visible():
+                for scope in (frame, page):
+                    try:
+                        b = scope.query_selector(sel)
+                        if b and b.is_visible():
+                            btn = b; break
+                    except Exception:
+                        continue
+                if btn:
                     break
+            if not btn:
+                for t in ("Submit application", "Submit Application", "Submit", "Send application", "Finish", "Apply"):
+                    for scope in (frame, page):
+                        try:
+                            b = scope.query_selector(f"button:has-text('{t}'), [role=button]:has-text('{t}'), input[type='submit']")
+                            if b and b.is_visible():
+                                btn = b; break
+                        except Exception:
+                            continue
+                    if btn:
+                        break
             if not btn:
                 return {"ok": False, "status": "no_submit_button", "detail": "Couldn't find the submit button — apply manually.", **prepared}
             url_before = page.url
@@ -653,7 +719,7 @@ def submit(job, answers, resume_html, standing=None, dry=True, headless=True, ti
                 return {"ok": False, "status": "captcha", "detail": "CAPTCHA appeared on submit — manual.", **prepared}
             body = ""
             try:
-                body = page.inner_text("body").lower()
+                body = (page.inner_text("body") + " " + (frame.inner_text("body") if frame is not page else "")).lower()
             except Exception:
                 pass
             page.screenshot(path=shot, full_page=True)
@@ -665,15 +731,19 @@ def submit(job, answers, resume_html, standing=None, dry=True, headless=True, ti
             # No success text. Did the board actually accept it, or bounce us back to the
             # form for validation? If the apply form is STILL here (with errors / same URL),
             # it was NOT submitted — say so honestly instead of claiming "sent".
-            still_on_form = bool(page.query_selector("input[type='email'], input[name*='email' i], input[autocomplete='email']"))
+            still_on_form = False
+            try:
+                still_on_form = bool(frame.query_selector(_EMAIL_SEL))
+            except Exception:
+                still_on_form = bool(page.query_selector(_EMAIL_SEL))
             errors = []
             try:
-                errors = page.evaluate("""()=>[...document.querySelectorAll('[aria-invalid=\"true\"],[class*=error i],[class*=invalid i],[role=alert]')]
+                errors = frame.evaluate("""()=>[...document.querySelectorAll('[aria-invalid=\"true\"],[class*=error i],[class*=invalid i],[role=alert]')]
                     .filter(e=>e.offsetParent&&(e.innerText||'').trim()).slice(0,5).map(e=>(e.innerText||'').trim().slice(0,90))""") or []
             except Exception:
                 pass
             if still_on_form and page.url == url_before:
-                rescan = _fill_questions(page, _bank) or unfilled_required
+                rescan = _fill_questions(frame, _bank) or unfilled_required
                 detail = "The form didn't go through — it still needs answers"
                 if errors:
                     detail += ": " + "; ".join(dict.fromkeys(errors))[:180]

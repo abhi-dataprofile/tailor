@@ -376,6 +376,9 @@ body.split .wrap{max-width:none;width:calc(100% - 28px);margin:0 auto;display:fl
 .jtag.date{font-family:"JetBrains Mono",monospace;font-size:10.5px}
 .jtag.sp-no{background:var(--gap-bg);color:var(--gap)}
 .jtag.sp-yes{background:var(--good-bg);color:var(--good)}
+.jtag.ap-auto{background:#e7f3ea;color:#1f7a44;font-weight:700}
+.jtag.ap-assist{background:#fbeede;color:#9a6a1a;font-weight:700}
+.jtag.ap-manual{background:var(--card-2,#f4f4ef);color:var(--ink-faint)}
 .jtag.sp-un{background:transparent;color:var(--ink-faint);padding-left:0}
 .jright{display:flex;align-items:center;gap:10px;flex:0 0 auto}
 .mring{position:relative;width:46px;height:46px;flex:0 0 auto}
@@ -3247,6 +3250,9 @@ function jobCard(r,i){
   const dt=ago?`<span class="jtag date">${ic("clock")} ${ago}</span>`:"";
   const etype=r.employment_type?`<span class="jtag">${esc(r.employment_type)}</span>`:"";
   const comp=r.compensation?`<span class="jtag">${esc(String(r.compensation).slice(0,32))}</span>`:"";
+  const ap=r.applyability==="auto"?`<span class="jtag ap-auto" title="Agent applies end-to-end">${ic("bolt")} Auto-apply</span>`
+        :r.applyability==="assisted"?'<span class="jtag ap-assist" title="Agent fills; you solve a captcha">Assisted</span>'
+        :r.applyability==="manual"?'<span class="jtag ap-manual" title="Unsupported / account-required — apply yourself">Manual</span>':"";
   const add=r.added?`<span class="jadd done">${ic("check")} queued</span>`:`<button class="jadd" onclick="addFound(${i})" title="Add to your tailoring queue">${ic("plus")} Add</button>`;
   const apply=`<button class="jadd japply" onclick="applyFound(${i},this)" title="Tailor your resume to this role (using the mode above), then auto-fill the application">${ic("bolt")} Apply</button>`;
   return `<div class="jcard${r.added?" isadded":""}">
@@ -3254,7 +3260,7 @@ function jobCard(r,i){
     <div class="jmain">
       <div class="jtitle">${esc(r.title)}${recent?'<span class="newtag">NEW</span>':""}</div>
       <div class="jco">${esc(r.company)}${r.location?" · "+esc(r.location):""}${r.vendor?" · "+esc(r.vendor):""}</div>
-      <div class="jmeta">${dt}${rem}${etype}${comp}${sp}</div>
+      <div class="jmeta">${ap}${dt}${rem}${etype}${comp}${sp}</div>
     </div>
     <div class="jright">
       <div class="mring" style="--p:${r.score};--c:${ringCol(r.score)}" title="${r.score}% match to your profile"><i></i><b>${r.score}<small>%</small></b></div>
@@ -3355,7 +3361,7 @@ async function queryIndex(page,append){
     jid:j.id, title:j.title||"", company:j.company_slug||j.company||"", location:j.location||"", url:j.url||"",
     score:j.score||0, remote:!!j.remote, sponsor:j.sponsorship||"unknown", date:j.posted_at||"",
     desc:"", vendor:j.vendor||"", department:j.department||"", employment_type:j.employment_type||"", compensation:j.compensation||"", country:j.country||"",
-    added:queued.has(j.url)
+    applyability:j.applyability||"", added:queued.has(j.url)
   }));
   state.watch.results=append?(state.watch.results||[]).concat(mapped):mapped;
   _findMeta={page:d.page||0,hasMore:!!d.has_more,total:d.count||0};

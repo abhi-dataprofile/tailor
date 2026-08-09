@@ -593,6 +593,44 @@ def _seniority(title):
     if re.search(r"\b(junior|jr|entry|associate|new grad|graduate|apprentice|early career)\b", t): return "entry"
     return "mid"
 
+# --- applyability: can the agent take this job end-to-end? ---
+_AUTO_VENDORS = ("greenhouse", "lever", "ashby")
+_APPLY_SIG = {}   # user -> (expiry, blocked_companies, manual_companies) — learned from past attempts
+
+def _apply_signals(user):
+    """Companies where this user's past attempts hit a captcha (→ assisted) or a dead end
+    like no-submit/unsupported (→ manual). Lets us stop calling a board 'auto' once we've
+    learned it won't complete. Cached briefly."""
+    now = time.time(); hit = _APPLY_SIG.get(user)
+    if hit and hit[0] > now:
+        return hit[1], hit[2]
+    blocked_co, manual_co = set(), set()
+    try:
+        apps = sb.select("applications", {"user_id": f"eq.{user}", "select": "job_id,status",
+                "status": "in.(blocked_captcha,failed_permanent)"}) or []
+        bids = [str(a["job_id"]) for a in apps if a.get("status") == "blocked_captcha" and a.get("job_id")]
+        mids = [str(a["job_id"]) for a in apps if a.get("status") == "failed_permanent" and a.get("job_id")]
+        idmap = {}
+        allids = list({*bids, *mids})
+        if allids:
+            for j in sb.select("jobs", {"id": f"in.({','.join(allids)})", "select": "id,company_slug"}) or []:
+                idmap[str(j["id"])] = j.get("company_slug")
+        blocked_co = {idmap.get(i) for i in bids if idmap.get(i)}
+        manual_co = {idmap.get(i) for i in mids if idmap.get(i)}
+    except Exception:
+        pass
+    _APPLY_SIG[user] = (now + 60, blocked_co, manual_co)
+    return blocked_co, manual_co
+
+def _applyability(vendor, company_slug, blocked_co, manual_co):
+    """auto = agent completes it end-to-end · assisted = agent fills, you solve a captcha ·
+    manual = unsupported / account-required (Workday, iCIMS-account) — we won't pretend."""
+    if company_slug in manual_co:
+        return "manual"
+    if company_slug in blocked_co:
+        return "assisted"
+    return "auto" if (vendor or "").lower() in _AUTO_VENDORS else "manual"
+
 def jobs_query(qs, user="local"):
     """Fast, ranked, filterable, paginated query over the shared jobs index."""
     def one(k, d=""): return (qs.get(k) or [d])[0].strip()
@@ -604,7 +642,7 @@ def jobs_query(qs, user="local"):
     jobtypes = [j.strip().lower() for j in one("jobtype").split(",") if j.strip()]
     days = one("days"); mins = one("mins")
     sort = one("sort", "relevant"); remote = one("remote") in ("1", "true")
-    spon = one("sponsor")
+    spon = one("sponsor"); only = one("only").lower()   # 'auto' → only end-to-end doable jobs
     try: page = max(0, int(one("page", "0")))
     except Exception: page = 0
     params = {"select": _SLIM, "is_open": "eq.true",
@@ -632,9 +670,15 @@ def jobs_query(qs, user="local"):
         pool = [j for j in pool if _seniority(j.get("title", "")) in jobtypes]
     prof, states = _user_ctx(user)
     myskills = set((s or "").lower() for s in (prof.get("skills") or []))
+    blocked_co, manual_co = _apply_signals(user)
     for j in pool:
         j["score"] = _score(j, myskills)
         j["status"] = states.get(j["id"], "new")
+        j["applyability"] = _applyability(j.get("vendor"), j.get("company_slug"), blocked_co, manual_co)
+    if only == "auto":                                  # "only suggest jobs we can do end-to-end"
+        pool = [j for j in pool if j["applyability"] == "auto"]
+    elif only in ("assisted", "applyable"):             # auto + assisted (agent does the work; you may finish a captcha)
+        pool = [j for j in pool if j["applyability"] in ("auto", "assisted")]
     if sort == "new":
         pool.sort(key=lambda j: (j.get("posted_at") or "", j["score"]), reverse=True)
     elif sort == "match":

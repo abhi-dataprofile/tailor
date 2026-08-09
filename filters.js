@@ -10,8 +10,9 @@ window.TailorFilters = (function () {
   const EMPTYPE = [["FullTime", "Full-time"], ["PartTime", "Part-time"], ["Contract", "Contract"], ["Intern", "Internship"]];
   const JOBTYPE = [["intern", "Internship"], ["entry", "Entry level"], ["mid", "Mid level"], ["experienced", "Experienced"]];
   const SPON = [["", "Any sponsorship"], ["yes", "Sponsors visa"], ["hide", "Hide “no sponsorship”"]];
+  const APPLYABLE = [["", "All jobs"], ["auto", "Auto-applyable only"], ["applyable", "Auto + assisted"]];
 
-  const S = { mins: "", countries: [], workplace: [], companies: [], etypes: [], jobtypes: [], sponsor: "" };
+  const S = { mins: "", countries: [], workplace: [], companies: [], etypes: [], jobtypes: [], sponsor: "", only: "" };
   let facets = { countries: [], companies: [] }, onChange = function () { }, host = null;
 
   const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -25,11 +26,12 @@ window.TailorFilters = (function () {
     if (S.jobtypes.length) p.set("jobtype", S.jobtypes.join(","));
     if (S.workplace.length) p.set("workplace", S.workplace.join(",").toLowerCase());
     if (S.sponsor) p.set("sponsor", S.sponsor);
+    if (S.only) p.set("only", S.only);
     return p;
   }
   function setFacets(f) { facets = Object.assign(facets, f || {}); render(); }
-  function clearAll() { S.mins = ""; S.countries = []; S.workplace = []; S.companies = []; S.etypes = []; S.jobtypes = []; S.sponsor = ""; render(); onChange(); }
-  function active() { return (S.mins ? 1 : 0) + S.countries.length + S.workplace.length + S.companies.length + S.etypes.length + S.jobtypes.length + (S.sponsor ? 1 : 0); }
+  function clearAll() { S.mins = ""; S.countries = []; S.workplace = []; S.companies = []; S.etypes = []; S.jobtypes = []; S.sponsor = ""; S.only = ""; render(); onChange(); }
+  function active() { return (S.mins ? 1 : 0) + S.countries.length + S.workplace.length + S.companies.length + S.etypes.length + S.jobtypes.length + (S.sponsor ? 1 : 0) + (S.only ? 1 : 0); }
 
   function closeAll() { host && host.querySelectorAll(".tf-drop.open").forEach(d => d.classList.remove("open")); }
   document.addEventListener("click", e => { if (host && !e.target.closest(".tf-chip-wrap")) closeAll(); });
@@ -64,6 +66,7 @@ window.TailorFilters = (function () {
       multiChip("jobtypes", "Job type", JOBTYPE, false) +
       multiChip("etypes", "Employment", EMPTYPE, false) +
       radioChip("sponsor", "Sponsorship", SPON) +
+      radioChip("only", "Auto-apply", APPLYABLE) +
       (active() ? `<button class="tf-clear" data-clear>Clear all (${active()})</button>` : "");
     wire();
   }

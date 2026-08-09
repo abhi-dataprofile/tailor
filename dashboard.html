@@ -84,6 +84,9 @@ select.in.fchip{cursor:pointer;padding-right:26px}
 .tag.rem{background:rgba(43,91,158,.1);color:var(--str)}
 .tag.sp-no{background:rgba(161,85,97,.12);color:var(--fair)}
 .tag.sp-yes{background:var(--exc-bg);color:var(--exc)}
+.tag.ap-auto{background:#e7f3ea;color:#1f7a44;font-weight:700}
+.tag.ap-assist{background:#fbeede;color:#9a6a1a;font-weight:700}
+.tag.ap-manual{background:var(--line-soft,#f0f0ea);color:var(--ink-faint)}
 .jc .jfoot{display:flex;flex-direction:column;gap:10px;margin-top:auto;padding-top:12px;border-top:1px solid rgba(26,36,32,.08)}
 .cline{display:flex;align-items:center;gap:8px;min-width:0}
 .cline .ava{width:26px;height:26px;border-radius:8px}
@@ -454,6 +457,12 @@ function visible(){let l=JOBS.slice();const S=(window.TailorFilters&&TailorFilte
   else l.sort((a,b)=>b.score-a.score);return l;}
 function clearFilters(){if($("fQ"))$("fQ").value="";if(window.TailorFilters)TailorFilters.clearAll();else refresh();}
 function renderAll(){renderCards();renderTable();if($("v-net").classList.contains("on"))renderNet();}
+function applyBadge(a){
+  if(a==="auto")return '<span class="tag ap-auto" title="The agent can complete this application end-to-end">⚡ Auto-apply</span>';
+  if(a==="assisted")return '<span class="tag ap-assist" title="The agent fills everything; you solve a captcha and submit">Assisted</span>';
+  if(a==="manual")return '<span class="tag ap-manual" title="Unsupported / account-required — apply yourself">Manual</span>';
+  return "";
+}
 function renderCards(){
   const seen={},l=[];for(const j of visible()){const k=(j.company||"").toLowerCase();seen[k]=(seen[k]||0)+1;if(seen[k]<=2)l.push(j);if(l.length>=5)break;}
   const p=profile();$("matchSub").textContent=p.skills.length?`ranked against your ${p.skills.length} résumé skills`:"add skills in the workbench for real matching";
@@ -466,7 +475,7 @@ function renderCards(){
       <div class="meta"><span class="qlabel q-${tc}"><span class="qd"></span>${tl}</span>
         <span class="ring" style="--p:${j.score};--c:${RING[tc]};--rc:${RINGBG[tc]}"><i></i><b><span class="pc">${j.score}<small>%</small></span><span class="mt">MATCH</span></b></span></div>
       <a class="title" href="${esc(j.url)}" target="_blank" rel="noopener" title="Open the original posting">${esc(j.title)}</a>
-      <div class="tags">${hits.map(h=>`<span class="tag hit">${esc(h)}</span>`).join("")}${j.remote?'<span class="tag rem">remote</span>':""}${sp==="no"?'<span class="tag sp-no">no sponsorship</span>':sp==="yes"?'<span class="tag sp-yes">sponsors visa</span>':""}</div>
+      <div class="tags">${applyBadge(j.applyability)}${hits.map(h=>`<span class="tag hit">${esc(h)}</span>`).join("")}${j.remote?'<span class="tag rem">remote</span>':""}${sp==="no"?'<span class="tag sp-no">no sponsorship</span>':sp==="yes"?'<span class="tag sp-yes">sponsors visa</span>':""}</div>
       <div class="jfoot">
         <div class="cline"><span class="ava" style="background:${avaCol(j.company)}">${esc(initials(j.company))}</span>
           <span class="cmeta">${esc(j.company||"")}${j.location?" · "+esc(j.location):""}${when?" · "+when:""}</span></div>

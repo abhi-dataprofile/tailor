@@ -119,6 +119,25 @@ def _rewrite_bullets(bullets, job, sys_prompt=None):
         pass
     return bullets   # any failure → keep the candidate's real bullets verbatim
 
+def cover_letter(profile, job):
+    """Generate a concise cover letter from the candidate's REAL background, using the editable
+    cover-letter prompt. Returns plain text, or '' on any failure (never invents)."""
+    import prompts
+    cfg = _cfg(profile)
+    sysp = prompts.get(cfg, "cover_letter")
+    data = profile.get("data") or {}
+    exp = "; ".join(f"{(e.get('role') or '')} at {(e.get('company') or '')}"
+                    for e in (data.get("exp") or [])[:4] if e.get("role") or e.get("company"))
+    ctx = (f"CANDIDATE: {profile.get('name','')} — {profile.get('title','')}\n"
+           f"SUMMARY: {profile.get('summary','')}\nSKILLS: {', '.join(profile.get('skills') or [])}\n"
+           f"EXPERIENCE: {exp}\n"
+           f"TARGET ROLE: {job.get('title','')} at {job.get('company_slug','')}\n"
+           f"ROLE DESCRIPTION: {(job.get('description') or '')[:1600]}")
+    try:
+        return (llm.gen(sysp, ctx, temp=0.5, max_tokens=420) or "").strip()
+    except Exception:
+        return ""
+
 def _rank_projects(projects, job):
     """Order the candidate's projects by keyword overlap with the role — most relevant first."""
     jd = ((job.get("title") or "") + " " + (job.get("description") or "")).lower()

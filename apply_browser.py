@@ -758,7 +758,13 @@ def _fix_invalid(frame):
             continue
     return n
 
-def submit(job, answers, resume_html, standing=None, dry=True, headless=True, timeout=45000):
+def _file_ctx(el):
+    try:
+        return (el.evaluate("e=>((e.name||'')+' '+(e.id||'')+' '+((e.closest('[class*=field i],[class*=question i],label,li,div')||{}).innerText||'')).slice(0,140)") or "").lower()
+    except Exception:
+        return ""
+
+def submit(job, answers, resume_html, standing=None, dry=True, headless=True, timeout=45000, cover_letter=""):
     """Fill (and, if not dry, submit) the apply form. Returns a result dict."""
     url = job.get("url") or job.get("applyUrl")
     if not url:
@@ -825,18 +831,39 @@ def submit(job, answers, resume_html, standing=None, dry=True, headless=True, ti
             }
             # résumé upload (render a real PDF, attach to the vendor's file input)
             attached = False
-            file_input = None
+            # categorize file inputs: résumé goes to a non-cover input; a cover-labeled input
+            # (if any, and if we have a cover letter) gets the cover-letter PDF — never crossed.
+            file_inputs = []
             for sel in pack["file"]:
-                file_input = frame.query_selector(sel)
-                if file_input:
-                    break
-            if file_input:
+                for f in frame.query_selector_all(sel):
+                    if f not in file_inputs:
+                        file_inputs.append(f)
+            cover_input = next((f for f in file_inputs if "cover" in _file_ctx(f)), None)
+            resume_input = next((f for f in file_inputs if f is not cover_input), None)
+            if resume_input:
                 pdf_path = os.path.join(tempfile.gettempdir(), f"resume_{int(time.time())}.pdf")
                 _render_pdf(ctx, resume_html, pdf_path)
                 try:
-                    file_input.set_input_files(pdf_path); attached = True
+                    resume_input.set_input_files(pdf_path); attached = True
                 except Exception:
                     attached = False
+            # cover letter: upload to a dedicated file input, else fill a "cover letter" textarea
+            if cover_letter:
+                try:
+                    if cover_input:
+                        cpath = os.path.join(tempfile.gettempdir(), f"cover_{int(time.time())}.pdf")
+                        _cl = cover_letter.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")
+                        _render_pdf(ctx, "<html><body style='font-family:Georgia,serif;padding:48px;line-height:1.55;font-size:12pt'>"
+                                    + _cl + "</body></html>", cpath)
+                        cover_input.set_input_files(cpath)
+                    else:
+                        for el in frame.query_selector_all("textarea, input[type='text']"):
+                            if not el.is_visible() or el.evaluate("e=>e.value"): continue
+                            lab = (_label_text(el) + " " + (el.evaluate("e=>(e.name||'')+' '+(e.placeholder||'')") or "")).lower()
+                            if "cover" in lab and ("letter" in lab or el.evaluate("e=>e.tagName") == "TEXTAREA"):
+                                el.fill(cover_letter[:5000]); break
+                except Exception:
+                    pass
             # best-effort: fill remaining visible required text inputs from answers-by-name
             for name, val in (answers or {}).items():
                 if name in ("first_name", "last_name", "email", "phone") or val in (None, ""):

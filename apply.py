@@ -79,7 +79,7 @@ def _claim(user_id, job_id):
     except Exception:
         return None   # e.g. claimed_at column not migrated yet → degrade to legacy dedup
 
-def submit_application(job, answers, resume_html, dry, standing=None):
+def submit_application(job, answers, resume_html, dry, standing=None, cover_letter=""):
     """Pick the best available submission backend for this job:
        1) official employer API (if this company is in connectors.json),
        2) headless browser (Playwright) when APPLY_BROWSER=1 — handles Greenhouse,
@@ -94,7 +94,7 @@ def submit_application(job, answers, resume_html, dry, standing=None):
     if os.environ.get("APPLY_BROWSER") == "1":
         try:
             import apply_browser
-            r = apply_browser.submit(job, answers, resume_html, standing=standing or {}, dry=dry)
+            r = apply_browser.submit(job, answers, resume_html, standing=standing or {}, dry=dry, cover_letter=cover_letter)
             r["backend"] = "browser"
             return r
         except Exception as e:
@@ -266,9 +266,16 @@ def apply_one(user_id, profile, job, review=False, force_live=False):
         return "needs_review"
     resume = resume_for(user_id, job["id"], profile, job)
     standing = (profile.get("data") or {}).get("standing") or {}   # answer bank for the browser engine
+    orch = (profile.get("data") or {}).get("orchestration") or {}
+    cover = ""
+    if (orch.get("answers") or {}).get("cover_letter"):
+        try:
+            import pipeline; cover = pipeline.cover_letter(profile, job)
+        except Exception:
+            cover = ""
     _throttle(job["url"])                    # keep a polite gap between hits on the same board
     dry = bool(serve.DRY_RUN) or (review and not force_live)
-    res = submit_application(job, ans, resume, dry=dry, standing=standing)
+    res = submit_application(job, ans, resume, dry=dry, standing=standing, cover_letter=cover)
     # review-mode clean prepare (nothing required missing) → awaiting_review = ready to Submit
     if review and not force_live and res.get("status") == "dry_prepared" and not (res.get("unfilled_required") or []):
         res = {**res, "status": "awaiting_review", "ok": True,

@@ -73,6 +73,18 @@ def sponsorship(text):
 def _strip_html(h):
     return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", h or "")).strip()
 
+# Postgres text can't hold NUL (\x00) — some feeds (esp. SmartRecruiters/Recruitee) sneak them
+# in. Strip NUL and other C0 control chars (keep tab/newline/cr) from all strings, recursively.
+_CTRL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+def _scrub(v):
+    if isinstance(v, str):
+        return _CTRL.sub("", v)
+    if isinstance(v, dict):
+        return {k: _scrub(x) for k, x in v.items()}
+    if isinstance(v, list):
+        return [_scrub(x) for x in v]
+    return v
+
 def _iso_date(s):
     m = re.match(r"(\d{4}-\d{2}-\d{2})", s or "")
     return m.group(1) if m else None
@@ -133,7 +145,7 @@ def _norm(vendor, slug, external_id, title, url, location, remote, desc,
           department="", team="", employment_type="", compensation="",
           updated_at="", posted_at="", meta=None):
     full = desc or ""
-    return {
+    return _scrub({
         "source_uid": f"{vendor}:{slug}:{external_id}",
         "vendor": vendor, "company_slug": slug, "external_id": str(external_id),
         "title": title or "", "url": url or "", "location": location or "",
@@ -150,7 +162,7 @@ def _norm(vendor, slug, external_id, title, url, location, remote, desc,
         "updated_at": _iso_ts(updated_at) or "",
         "posted_at": posted_at or "",
         "meta": {k: v for k, v in (meta or {}).items() if v},   # raw extras kept as jsonb
-    }
+    })   # _scrub: strip NUL/control chars Postgres text can't store
 
 def _greenhouse(slug, timeout):
     data = json.loads(_http_get(f"https://boards-api.greenhouse.io/v1/boards/{slug}/jobs?content=true", timeout))

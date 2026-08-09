@@ -548,20 +548,79 @@ def _fill_questions(page, bank, context=""):
                 unfilled.append({"label": qlabel or "(choice)", "type": "radio", "options": [_radio_label(r) for r in rs][:8]})
         except Exception:
             continue
-    # required checkboxes: tick benign certifications ("I certify the info is accurate");
-    # leave legal AGREEMENTS (arbitration/terms/privacy) for the human to accept.
+    # checkboxes, grouped by question. A lone sentence-checkbox is a certification; 2+ under one
+    # question is a CHOICE ("Which office would you work from? SF / Santa Clara / Both").
+    _cbg = {}
     for cb in page.query_selector_all("input[type='checkbox']"):
         try:
             if not cb.is_visible() or cb.evaluate("e=>e.checked"): continue
-            if not _is_required(cb): continue
-            label = _label_text(cb) or _radio_label(cb)
-            if _LEGAL_CONSENT.search(label or ""):
-                unfilled.append({"label": (label or "(agreement)")[:90], "type": "consent"})
-            else:
-                try: cb.check()
+            _cbg.setdefault(_group_label(cb) or _label_text(cb) or "", []).append(cb)
+        except Exception:
+            continue
+    for glabel, cbs in _cbg.items():
+        try:
+            req = any(_is_required(c) for c in cbs)
+            if len(cbs) == 1:                                    # single certification checkbox
+                c = cbs[0]
+                if not req:
+                    continue
+                lab = glabel or _label_text(c)
+                if _LEGAL_CONSENT.search(lab or ""):
+                    unfilled.append({"label": (lab or "(agreement)")[:90], "type": "consent"})
+                else:
+                    try: c.check()
+                    except Exception:
+                        try: c.click()
+                        except Exception: unfilled.append({"label": lab or "(checkbox)", "type": "checkbox"})
+                continue
+            if not req:                                          # optional multi-select → leave it
+                continue
+            if _SENSITIVE_RE.search(glabel or ""):
+                unfilled.append({"label": glabel or "(choose)", "type": "checkgroup",
+                                 "options": [_radio_label(c) for c in cbs][:8]})
+                continue
+            opts = [(_radio_label(c) or "", c) for c in cbs]
+            pick = None
+            for txt, c in opts:                                  # 1) prefer an all-encompassing option
+                if re.search(r"\b(both|any|all locations?|open to all|no preference|flexible|either)\b", txt.lower()):
+                    pick = c; break
+            if not pick:                                         # 2) an option matching a saved answer
+                a = _answer_for(glabel, bank)
+                if a:
+                    al = str(a).lower()
+                    pick = next((c for txt, c in opts if txt and (al in txt.lower() or txt.lower() in al)), None)
+            if pick:
+                try: pick.check()
                 except Exception:
-                    try: cb.click()
-                    except Exception: unfilled.append({"label": label or "(checkbox)", "type": "checkbox"})
+                    try: pick.click()
+                    except Exception: pass
+            else:                                                # 3) let the LLM choose an option
+                pending.append((cbs, {"label": glabel or "(choose)", "type": "checkgroup",
+                                      "options": [t for t, _ in opts]}))
+        except Exception:
+            continue
+    # Yes/No (and segmented) questions rendered as BUTTONS, not radios (Ashby-style)
+    _yn = {}
+    for b in page.query_selector_all("button, [role=button]"):
+        try:
+            if not b.is_visible():
+                continue
+            txt = (b.inner_text() or "").strip().lower()
+            if txt not in ("yes", "no"):
+                continue
+            q = _group_label(b)
+            if not q:
+                continue
+            if q not in _yn:
+                a = _answer_for(q, bank)
+                _yn[q] = (str(a).strip().lower() if a is not None else None)
+                if a is None:                                    # sensitive → standing only; else ask
+                    unfilled.append({"label": q, "type": "yesno"})
+            want = _yn[q]
+            want = "yes" if want in ("yes", "y", "true", "1") else "no" if want in ("no", "n", "false", "0") else None
+            if want and txt == want:
+                try: b.click()
+                except Exception: pass
         except Exception:
             continue
     # remaining text / textarea / url / number / date
@@ -607,6 +666,16 @@ def _fill_questions(page, bank, context=""):
                     done = _select_by_text(el, a)
                 elif meta["type"] == "combo":
                     done = _fill_combobox(page, el, a)
+                elif meta["type"] == "checkgroup":              # el is the list of checkboxes
+                    al = str(a).lower()
+                    for c in el:
+                        rl = (_radio_label(c) or "").lower()
+                        if rl and (al in rl or rl in al):
+                            try: c.check(); done = True
+                            except Exception:
+                                try: c.click(); done = True
+                                except Exception: pass
+                            break
                 else:
                     el.fill(a); done = True
             except Exception:

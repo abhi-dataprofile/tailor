@@ -22,7 +22,7 @@ PRIORITY = {
         "affirm","confluent","canva","duolingo","cohere","sourcegraph"],
     "ashby": ["openai","notion","ramp","linear","plaid","reddit","snowflake","benchling","confluent",
         "zapier","deel","pinecone","weaviate","cohere","runway","perplexity","harvey","cursor","replit"],
-    "smartrecruiters": ["BoschGroup","SGS","Equinox","PublicStorage","Accor","Experian","WesternDigital","Colliers","Visa","WeWork","Wayfair"],
+    "smartrecruiters": ["BoschGroup","SGS","Continental","Equinox","PublicStorage","Accor","Experian","Wise","WesternDigital","Colliers","Visa","WeWork","Wayfair","ASOS"],
     "recruitee": ["bunq","personio","gorgias"],
 }
 

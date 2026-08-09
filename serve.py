@@ -762,6 +762,85 @@ def applications_feed(user):
         counts[r["status"]] = counts.get(r["status"], 0) + 1
     return {"ok": True, "count": len(out), "counts": counts, "applications": out}
 
+def agent_stats(user):
+    """Evals for the control board: application outcomes, success rate, backend/vendor mix,
+    and recent crawl cycles."""
+    from collections import Counter
+    apps = sb.select("applications", {"user_id": f"eq.{user}",
+            "select": "job_id,status,created_at,receipt"}) or []
+    counts = Counter(a.get("status") for a in apps)
+    total = len(apps)
+    applied = counts.get("confirmed", 0)
+    sent = counts.get("submitted_unconfirmed", 0)
+    needs = counts.get("needs_you", 0) + counts.get("awaiting_review", 0)
+    captcha = counts.get("blocked_captcha", 0)
+    failed = counts.get("failed_transient", 0) + counts.get("failed_permanent", 0)
+    reached = applied + sent                         # got the application in
+    by_backend = Counter((a.get("receipt") or {}).get("backend") for a in apps
+                         if (a.get("receipt") or {}).get("backend"))
+    crawl = sb.select("crawl_runs", {"select": "new_jobs,updated_jobs,errors,finished_at,started_at",
+                                     "order": "id.desc", "limit": "12"}) or []
+    return {"ok": True, "total": total, "applied": applied, "sent": sent, "needs_you": needs,
+            "captcha": captcha, "failed": failed,
+            "success_rate": round(100 * reached / total) if total else 0,
+            "counts": {k: v for k, v in counts.items() if k},
+            "by_backend": dict(by_backend), "crawl": crawl, "config": agent_config(user)}
+
+def agent_config(user):
+    """The orchestration knobs the control board edits."""
+    prof = sb.select("profiles", {"user_id": f"eq.{user}", "select": "data", "limit": "1"}) or []
+    data = (prof[0].get("data") if prof else {}) or {}
+    aa = data.get("auto_apply") or {}
+    st = data.get("standing") or {}
+    return {"enabled": bool(aa.get("enabled")), "mode": aa.get("mode") or "auto",
+            "min_score": aa.get("min_score", 45), "max_per_run": aa.get("max_per_run", 10),
+            "persona": st.get("_persona", ""), "answer_prompt": st.get("_answer_prompt", "")}
+
+def save_agent_config(user, body):
+    prof = sb.select("profiles", {"user_id": f"eq.{user}", "select": "data", "limit": "1"}) or []
+    data = (prof[0].get("data") if prof else {}) or {}
+    aa = data.get("auto_apply") or {}
+    aa["enabled"] = bool(body.get("enabled"))
+    aa["mode"] = body.get("mode") if body.get("mode") in ("auto", "review") else "auto"
+    try: aa["min_score"] = max(0, min(100, int(body.get("min_score") or 45)))
+    except Exception: aa["min_score"] = 45
+    try: aa["max_per_run"] = max(1, min(100, int(body.get("max_per_run") or 10)))
+    except Exception: aa["max_per_run"] = 10
+    data["auto_apply"] = aa
+    st = data.get("standing") or {}
+    if "persona" in body: st["_persona"] = (body.get("persona") or "")[:600]
+    if "answer_prompt" in body: st["_answer_prompt"] = (body.get("answer_prompt") or "")[:1200]
+    data["standing"] = st
+    sb.upsert("profiles", [{"user_id": user, "data": data,
+              "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}],
+              on_conflict="user_id", update=True)
+    return {"ok": True, "config": agent_config(user)}
+
+def agent_logs(user, limit=60):
+    """A live feed of the agent's recent work — each attempt with its status, backend and
+    the detail line, newest first (the observable orchestration log)."""
+    apps = sb.select("applications", {"user_id": f"eq.{user}",
+            "select": "job_id,status,attempts,created_at,submitted_at,receipt",
+            "order": "created_at.desc", "limit": str(limit)}) or []
+    ids = [str(a["job_id"]) for a in apps if a.get("job_id")]
+    titles = {}
+    if ids:
+        for j in sb.select("jobs", {"id": f"in.({','.join(ids)})", "select": "id,title,company_slug"}) or []:
+            titles[j["id"]] = j
+    out = []
+    for a in apps:
+        rec = a.get("receipt") or {}
+        j = titles.get(a["job_id"], {})
+        st = a.get("status") or "draft"
+        label = _STATUS_LABELS.get(st, (st, "neutral"))[0]
+        out.append({"job_id": a["job_id"], "status": st, "label": label,
+                    "at": a.get("submitted_at") or a.get("created_at") or "",
+                    "backend": rec.get("backend") or "", "attempts": a.get("attempts") or 0,
+                    "company": j.get("company_slug") or "", "title": j.get("title") or rec.get("job") or "",
+                    "detail": rec.get("detail") or ""})
+    out.sort(key=lambda r: str(r.get("at") or ""), reverse=True)
+    return {"ok": True, "logs": out}
+
 def application_detail(user, job_id):
     """Everything we know about one application — the full audit: status timeline, every
     answer submitted, the fields filled, backend, attempts, timestamps."""
@@ -887,6 +966,16 @@ class H(SimpleHTTPRequestHandler):
         if urllib.parse.urlparse(self.path).path == "/api/shot":
             qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
             return self._send_shot(_req_user(self), (qs.get("job") or [""])[0])
+        if urllib.parse.urlparse(self.path).path in ("/api/agent/stats", "/api/agent/logs"):
+            if not (sb and sb.is_configured()):
+                return self._json(200, {"ok": False, "status": "no_db"})
+            try:
+                user = _req_user(self)
+                if self.path.startswith("/api/agent/stats"):
+                    return self._json(200, agent_stats(user))
+                return self._json(200, agent_logs(user))
+            except Exception as e:
+                return self._json(200, {"ok": False, "detail": str(e)[:200]})
         if urllib.parse.urlparse(self.path).path == "/api/application":
             if not (sb and sb.is_configured()):
                 return self._json(200, {"ok": False, "status": "no_db"})
@@ -1007,6 +1096,15 @@ class H(SimpleHTTPRequestHandler):
             try:
                 ok = _mark_confirmed(user, jid, "you marked it applied")
                 return self._json(200, {"ok": bool(ok)})
+            except Exception as e:
+                return self._json(200, {"ok": False, "status": "error", "detail": str(e)[:200]})
+        if self.path == "/api/agent/config":
+            if not (sb and sb.is_configured()):
+                return self._json(200, {"ok": False, "status": "no_db"})
+            n = int(self.headers.get("Content-Length", 0))
+            body = json.loads(self.rfile.read(n) or b"{}")
+            try:
+                return self._json(200, save_agent_config(_req_user(self), body))
             except Exception as e:
                 return self._json(200, {"ok": False, "status": "error", "detail": str(e)[:200]})
         if self.path == "/api/apply-submit":

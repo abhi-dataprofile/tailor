@@ -169,6 +169,7 @@ a{color:var(--primary-tint)}
     <button onclick="location.href='index.html?find=1'">Find jobs</button>
     <button onclick="location.href='index.html'">Workbench</button>
     <button onclick="location.href='index.html?profile=1'">Profile</button>
+    <button data-view="agent" onclick="showView('agent')">Agent</button>
     <button data-view="net" onclick="showView('net')">Networking</button>
   </nav>
   <div class="top-right">
@@ -249,6 +250,60 @@ a{color:var(--primary-tint)}
     <div class="tabs" id="statTabs"></div>
     <div class="panel"><table class="tbl" id="tbl"></table></div>
     <p class="note" id="noteLine"></p>
+  </div>
+
+  <!-- ===================== AGENT CONTROL BOARD ===================== -->
+  <style>
+  .ag-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px;margin:6px 0 22px}
+  .ag-tile{border:1px solid var(--line);border-radius:14px;padding:14px 16px;background:#fff}
+  .ag-tile .n{font:800 26px "Fraunces",serif;color:var(--ink);line-height:1}
+  .ag-tile .l{font-size:11.5px;color:var(--ink-faint);margin-top:4px;text-transform:uppercase;letter-spacing:.04em}
+  .ag-tile.good .n{color:#1f7a44}.ag-tile.info .n{color:#2a55b8}.ag-tile.warn .n{color:#9a6a1a}.ag-tile.bad .n{color:#a1354a}
+  .ag-panel{border:1px solid var(--line);border-radius:16px;padding:18px 20px;background:#fff;margin-bottom:20px}
+  .ag-panel h3{margin:0 0 4px;font:700 15px "Fraunces",serif}
+  .ag-panel .hint{color:var(--ink-faint);font-size:12.5px;margin:0 0 14px}
+  .ag-row{display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end}
+  .ag-fld{display:flex;flex-direction:column;gap:5px;font-size:12.5px;color:var(--ink-soft)}
+  .ag-fld input,.ag-fld select,.ag-fld textarea{border:1px solid var(--line);border-radius:9px;padding:8px 10px;font:inherit;font-size:13px;background:#fff}
+  .ag-fld textarea{min-height:80px;resize:vertical;width:100%}
+  .ag-seg{display:inline-flex;border:1px solid var(--line);border-radius:100px;overflow:hidden}
+  .ag-seg button{border:none;background:#fff;color:var(--ink-soft);font:600 12.5px "Inter";padding:7px 16px;cursor:pointer}
+  .ag-seg button.on{background:var(--ink);color:#fff}
+  .ag-log{display:flex;flex-direction:column;gap:1px;max-height:420px;overflow:auto;border:1px solid var(--line);border-radius:12px}
+  .ag-le{display:flex;gap:10px;align-items:baseline;padding:9px 13px;border-bottom:1px solid var(--line-soft);font-size:12.5px}
+  .ag-le:last-child{border-bottom:none}
+  .ag-le .t{font-family:"JetBrains Mono";font-size:11px;color:var(--ink-faint);white-space:nowrap}
+  .ag-le .co{font-weight:700;color:var(--ink)}
+  .ag-le .msg{color:var(--ink-soft);flex:1;min-width:0}
+  </style>
+  <div class="view" id="v-agent">
+    <div class="sechead"><h2>Agent control board</h2><span class="sub" id="agSub">orchestration · evals · logs · prompts</span>
+      <div class="right"><button class="btn" onclick="loadAgent()"><svg class="ic" viewBox="0 0 24 24"><polyline points="21 4 21 9 16 9"/><path d="M20 13a8 8 0 1 1-2.3-5.7L21 9"/></svg> Refresh</button></div></div>
+
+    <div class="ag-grid" id="agEvals"></div>
+
+    <div class="ag-panel">
+      <h3>Orchestration</h3>
+      <p class="hint">How the background agent runs. Applies to your top matches only.</p>
+      <div class="ag-row">
+        <label class="ag-fld" style="flex-direction:row;align-items:center;gap:8px"><input type="checkbox" id="agEnabled"> Auto-apply enabled</label>
+        <div class="ag-fld"><span>Mode</span>
+          <div class="ag-seg" id="agMode"><button data-m="auto" onclick="agSetMode('auto')">Auto-submit</button><button data-m="review" onclick="agSetMode('review')">Review queue</button></div></div>
+        <label class="ag-fld"><span>Min match score</span><input type="number" id="agMin" min="0" max="100" style="width:90px"></label>
+        <label class="ag-fld"><span>Max per run</span><input type="number" id="agMax" min="1" max="100" style="width:90px"></label>
+      </div>
+      <div class="ag-fld" style="margin-top:14px"><span>Candidate persona <span style="color:var(--ink-faint)">— frames ambiguous non-sensitive answers (sensitive still come only from your saved answers)</span></span>
+        <textarea id="agPersona" placeholder="e.g. International student on F-1/OPT; will require H-1B sponsorship; authorized on OPT."></textarea></div>
+      <div class="ag-fld" style="margin-top:12px"><span>Answer prompt <span style="color:var(--ink-faint)">— extra guidance for how the AI writes free-text answers</span></span>
+        <textarea id="agPrompt" placeholder="e.g. Emphasize data-engineering impact and quantified results. Keep answers under 60 words. Professional, first person."></textarea></div>
+      <div style="margin-top:14px"><button class="btn accent" onclick="saveAgent(this)">Save orchestration</button> <span id="agSaved" class="sub"></span></div>
+    </div>
+
+    <div class="ag-panel">
+      <h3>Agent log</h3>
+      <p class="hint">Every attempt the agent made, newest first — status, board, and what happened.</p>
+      <div class="ag-log" id="agLog"><div class="sub" style="padding:12px">Loading…</div></div>
+    </div>
   </div>
 
   <!-- ===================== NETWORKING ===================== -->
@@ -673,8 +728,57 @@ function saveMissing(url,label){
   const mm=document.getElementById("missModal");if(mm)mm.remove();
   toast("Saved — re-applying with your answers");autoApply(url,null);
 }
+/* ===================== AGENT CONTROL BOARD ===================== */
+let AG_MODE="auto";
+async function loadAgent(){
+  let s,l;
+  try{[s,l]=await Promise.all([
+    fetch("/api/agent/stats",{headers:authHeaders()}).then(x=>x.json()),
+    fetch("/api/agent/logs",{headers:authHeaders()}).then(x=>x.json())]);}catch(e){s=l=null;}
+  if(!s||!s.ok){$("agEvals").innerHTML='<div class="sub">'+((s&&s.status==="no_db")?"Connect Supabase to see agent stats.":"Couldn't load stats.")+'</div>';}
+  else renderEvals(s);
+  if(s&&s.ok&&s.config)fillAgentConfig(s.config);
+  renderLog((l&&l.logs)||[]);
+}
+function tile(n,label,tone){return `<div class="ag-tile ${tone||''}"><div class="n">${n}</div><div class="l">${esc(label)}</div></div>`;}
+function renderEvals(s){
+  const crawlNew=(s.crawl||[]).reduce((a,c)=>a+(c.new_jobs||0),0);
+  $("agEvals").innerHTML=[
+    tile(s.total||0,"Applications",""),
+    tile((s.applied||0),"Applied ✓","good"),
+    tile((s.sent||0),"Sent","info"),
+    tile((s.needs_you||0),"Needs you","warn"),
+    tile((s.captcha||0),"Captcha","warn"),
+    tile((s.failed||0),"Failed","bad"),
+    tile((s.success_rate||0)+"%","Reach rate",(s.success_rate>=50?"good":"")),
+    tile(crawlNew,"New jobs (recent)","")
+  ].join("");
+}
+function renderLog(logs){
+  const el=$("agLog");if(!el)return;
+  if(!logs.length){el.innerHTML='<div class="sub" style="padding:12px">No agent activity yet. Enable auto-apply above.</div>';return;}
+  el.innerHTML=logs.map(x=>`<div class="ag-le"><span class="t">${x.at?ago(x.at):""}</span><span class="bdg ${labelTone(x.status)}">${esc(x.label||x.status)}</span><span class="co">${esc(x.company||"")}</span><span class="msg">${esc(x.title||"")}${x.detail?" — "+esc(x.detail):""}${x.backend?" · "+esc(x.backend):""}${x.attempts>1?" · try "+x.attempts:""}</span></div>`).join("");
+}
+function labelTone(st){return ({confirmed:"good",submitted_unconfirmed:"info",filling:"info",awaiting_review:"info",needs_you:"warn",blocked_captcha:"warn",failed_transient:"warn",failed_permanent:"bad"})[st]||"neutral";}
+function agSetMode(m){AG_MODE=m;document.querySelectorAll("#agMode button").forEach(b=>b.classList.toggle("on",b.dataset.m===m));}
+function fillAgentConfig(c){
+  if($("agEnabled"))$("agEnabled").checked=!!c.enabled;
+  agSetMode(c.mode||"auto");
+  if($("agMin"))$("agMin").value=c.min_score!=null?c.min_score:45;
+  if($("agMax"))$("agMax").value=c.max_per_run!=null?c.max_per_run:10;
+  if($("agPersona"))$("agPersona").value=c.persona||"";
+  if($("agPrompt"))$("agPrompt").value=c.answer_prompt||"";
+}
+async function saveAgent(btn){
+  if(btn){btn.disabled=true;btn.textContent="Saving…";}
+  const body={enabled:$("agEnabled").checked,mode:AG_MODE,min_score:+$("agMin").value||45,max_per_run:+$("agMax").value||10,persona:$("agPersona").value,answer_prompt:$("agPrompt").value};
+  let r;try{r=await fetch("/api/agent/config",{method:"POST",headers:{"Content-Type":"application/json",...authHeaders()},body:JSON.stringify(body)}).then(x=>x.json());}catch(e){r=null;}
+  if(btn){btn.disabled=false;btn.textContent="Save orchestration";}
+  $("agSaved").textContent=(r&&r.ok)?"Saved ✓":"Couldn't save";setTimeout(()=>{if($("agSaved"))$("agSaved").textContent="";},2500);
+}
 function showView(v,noHash){if(!$("v-"+v))v="dash";document.querySelectorAll(".view").forEach(el=>el.classList.remove("on"));$("v-"+v).classList.add("on");
   document.querySelectorAll(".nav button[data-view]").forEach(b=>b.classList.toggle("on",b.dataset.view===v));
+  if(v==="agent")loadAgent();
   if(!noHash&&("#"+v)!==location.hash){try{history.replaceState(null,"","#"+v);}catch(e){}}
   if(v==="net")renderNet();}
 function viewFromHash(){const v=(location.hash||"").replace(/^#/,"");showView(v==="net"?"net":"dash",true);}

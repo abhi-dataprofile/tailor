@@ -429,11 +429,13 @@ _SENSITIVE_RE = re.compile(
 def _strip_html(h):
     return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", h or "")).strip()
 
-def _llm_answer_fields(context, fields):
+def _llm_answer_fields(context, fields, extra=""):
     """Answer NON-sensitive application questions from the candidate's own material, using the
     backend LLM (llm.py: a configured hosted key OR local Ollama). Returns {label: answer}.
     Returns {} when no model is available or on any error — callers then fall back to needs_you.
-    The model is instructed to return '' for anything the material doesn't support — never invent."""
+    The model is instructed to return '' for anything the material doesn't support — never invent.
+    `extra` = the operator's editable answer-prompt guidance (tone/perspective), appended to the
+    system prompt WITHOUT relaxing the never-invent / JSON-format rules."""
     fields = [f for f in (fields or []) if f.get("label")]
     if not fields or not context:
         return {}
@@ -449,7 +451,8 @@ def _llm_answer_fields(context, fields):
                 "for that question — NEVER invent facts, dates, numbers, employers, or credentials. "
                 "For questions with choose_one_of, reply with EXACTLY one of those options. Keep "
                 "free-text answers concise, first-person and professional. "
-                'Return STRICT JSON: {"answers":{"<exact question text>":"<answer>"}}.')
+                + (("Extra guidance from the candidate: " + extra.strip()[:800] + " ") if extra else "")
+                + 'Return STRICT JSON: {"answers":{"<exact question text>":"<answer>"}}.')
         userp = "CANDIDATE MATERIAL:\n" + context[:3800] + "\n\nQUESTIONS (JSON):\n" + json.dumps(qs)
         raw = llm.gen(sysp, userp, json_mode=True, temp=0, max_tokens=800)
         m = re.search(r"\{[\s\S]*\}", raw or "")
@@ -656,7 +659,7 @@ def _fill_questions(page, bank, context=""):
         except Exception:
             continue
     # LLM pass: answer the non-sensitive required questions from the candidate's own material.
-    answered = _llm_answer_fields(context, [m for _, m in pending]) if (pending and context) else {}
+    answered = _llm_answer_fields(context, [m for _, m in pending], (bank or {}).get("_answer_prompt", "")) if (pending and context) else {}
     for el, meta in pending:
         a = answered.get(meta["label"])
         done = False

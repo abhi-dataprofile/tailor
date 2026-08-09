@@ -189,6 +189,23 @@ def resume_for(user_id, job_id, profile, job=None):
     r = rows[0] if rows else {}
     if r.get("resume_html"):
         return r["resume_html"]              # a résumé already tailored/saved for this job
+    engine = ((profile.get("data") or {}).get("orchestration") or {}).get("tailor", {}).get("engine", "server")
+    # OPTION B: drive the REAL workbench tailoring headlessly (one engine). Falls back to the
+    # server pipeline below on any failure, so reliability never regresses.
+    if engine == "workbench" and job is not None:
+        try:
+            import workbench_tailor
+            html = workbench_tailor.tailor_via_workbench(profile, job)
+            if html:
+                try:
+                    sb.upsert("tailorings", [{"user_id": user_id, "job_id": job_id,
+                              "resume_html": html, "provider": "workbench"}],
+                              on_conflict="user_id,job_id", update=True)
+                except Exception:
+                    pass
+                return html
+        except Exception:
+            pass   # → server pipeline fallback
     # FULL tailor on demand: rewrite the candidate's real history to the role, build the
     # ~one-page résumé, and cache the rendered HTML so we never re-tailor this job.
     if job is not None:

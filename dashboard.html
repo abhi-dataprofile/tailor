@@ -310,7 +310,9 @@ a{color:var(--primary-tint)}
 
       <div class="ag-panel">
         <h3>Tailoring</h3><p class="hint">The résumé engine. Prompts are edited in the Prompts panel below.</p>
-        <div class="ag-fld"><span>One-page</span>
+        <div class="ag-fld"><span>Engine <span class="muted">— Workbench runs your full workbench tailoring (richer, slower); Server is the fast built-in.</span></span>
+          <div class="ag-seg" id="agEngine"><button data-e="server" onclick="agSetEngine('server')">Server</button><button data-e="workbench" onclick="agSetEngine('workbench')">Workbench</button></div></div>
+        <div class="ag-fld" style="margin-top:12px"><span>One-page</span>
           <div class="ag-seg" id="agOnePage"><button data-o="prefer" onclick="agSetOne('prefer')">Prefer</button><button data-o="force" onclick="agSetOne('force')">Force</button></div></div>
         <div class="ag-row" style="margin-top:12px">
           <label class="ag-fld"><span>Bullets per role</span><input type="number" data-c="tailor.bullets_per_role" min="1" max="12" style="width:90px"></label>
@@ -805,7 +807,7 @@ function saveMissing(url,label){
   toast("Saved — re-applying with your answers");autoApply(url,null);
 }
 /* ===================== AGENT CONTROL BOARD ===================== */
-let AG_MODE="auto",AG_ONE="prefer",AG_CFG=null;
+let AG_MODE="auto",AG_ONE="prefer",AG_ENGINE="server",AG_CFG=null;
 const AG_PROMPTS=[["understand","Understand the role"],["summary","Tailored summary"],["bullets","Rewrite experience bullets"],["projects","Suggest projects"],["cover_letter","Cover letter"]];
 async function loadAgent(){
   let o,s,l;
@@ -830,6 +832,7 @@ function renderLog(logs){
 function labelTone(st){return ({confirmed:"good",submitted_unconfirmed:"info",filling:"info",awaiting_review:"info",needs_you:"warn",blocked_captcha:"warn",failed_transient:"warn",failed_permanent:"bad"})[st]||"neutral";}
 function agSetMode(m){AG_MODE=m;document.querySelectorAll("#agMode button").forEach(b=>b.classList.toggle("on",b.dataset.m===m));}
 function agSetOne(o){AG_ONE=o;document.querySelectorAll("#agOnePage button").forEach(b=>b.classList.toggle("on",b.dataset.o===o));}
+function agSetEngine(e){AG_ENGINE=e;document.querySelectorAll("#agEngine button").forEach(b=>b.classList.toggle("on",b.dataset.e===e));}
 function _cget(obj,path){return path.split(".").reduce((a,k)=>(a&&a[k]!=null)?a[k]:undefined,obj);}
 function fillOrch(c){
   document.querySelectorAll("#agPanels [data-c]").forEach(el=>{
@@ -838,6 +841,7 @@ function fillOrch(c){
   });
   agSetMode((c.modes&&c.modes.mode)||"auto");
   agSetOne((c.tailor&&c.tailor.one_page)||"prefer");
+  agSetEngine((c.tailor&&c.tailor.engine)||"server");
   renderPrompts(c);
 }
 function renderPrompts(c){
@@ -851,7 +855,7 @@ function agpToggle(k){const b=$("agp-"+k);if(b)b.style.display=b.style.display==
 function agpReset(k){const ta=document.querySelector("#agp-"+k+" textarea");if(ta&&AG_CFG)ta.value=(AG_CFG.prompt_defaults||{})[k]||"";}
 async function saveOrch(btn){
   if(btn){btn.disabled=true;btn.textContent="Saving…";}
-  const body={modes:{mode:AG_MODE},tailor:{one_page:AG_ONE},crawl:{},match:{},answers:{},execution:{},model:{},prompts:{}};
+  const body={modes:{mode:AG_MODE},tailor:{one_page:AG_ONE,engine:AG_ENGINE},crawl:{},match:{},answers:{},execution:{},model:{},prompts:{}};
   document.querySelectorAll("#agPanels [data-c]").forEach(el=>{
     const p=el.dataset.c.split("."),sec=p[0],key=p[1];body[sec]=body[sec]||{};
     body[sec][key]=el.type==="checkbox"?el.checked:(el.type==="number"?(el.value===""?null:+el.value):el.value);

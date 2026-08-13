@@ -40,7 +40,7 @@ def _headers(extra=None):
         h.update(extra)
     return h
 
-def _request(method, path, params=None, body=None, prefer=None):
+def _request(method, path, params=None, body=None, prefer=None, timeout=45):
     if not is_configured():
         raise RuntimeError("Supabase not configured (set SUPABASE_URL and SUPABASE_SERVICE_KEY)")
     url = URL + "/rest/v1/" + path
@@ -50,15 +50,15 @@ def _request(method, path, params=None, body=None, prefer=None):
     req = urllib.request.Request(url, data=data, method=method,
                                  headers=_headers({"Prefer": prefer} if prefer else None))
     try:
-        with urllib.request.urlopen(req, timeout=45) as r:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
             raw = r.read().decode("utf-8", "replace")
             return json.loads(raw) if raw.strip() else None
     except urllib.error.HTTPError as e:
         detail = e.read().decode("utf-8", "replace")[:300]
         raise RuntimeError(f"Supabase {e.code}: {detail}")
 
-def select(table, params=None):
-    return _request("GET", table, params=params) or []
+def select(table, params=None, timeout=45):
+    return _request("GET", table, params=params, timeout=timeout) or []
 
 def upsert(table, rows, on_conflict, update=True):
     """Idempotent insert. update=False → 'ignore-duplicates' (only genuinely new rows)."""

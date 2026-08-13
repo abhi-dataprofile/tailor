@@ -24,11 +24,12 @@ from concurrent.futures import ThreadPoolExecutor
 import ats
 import supabase_client as sb
 
-FRESH_HOURS = int(os.environ.get("JOB_REFRESH_HOURS", "1"))   # re-crawl each company at least hourly
-BATCH       = int(os.environ.get("CRAWL_BATCH", "90"))     # companies per cycle (90/20s ≈ 4.5/s → ~16k/hr)
-CONCURRENCY = int(os.environ.get("CRAWL_CONCURRENCY", "16"))
-SLEEP       = int(os.environ.get("CRAWL_SLEEP", "20"))     # seconds between cycles
+FRESH_HOURS = int(os.environ.get("JOB_REFRESH_HOURS", "2"))   # re-crawl each company at least this often
+BATCH       = int(os.environ.get("CRAWL_BATCH", "45"))     # companies per cycle (gentle on a free-tier DB)
+CONCURRENCY = int(os.environ.get("CRAWL_CONCURRENCY", "12"))
+SLEEP       = int(os.environ.get("CRAWL_SLEEP", "30"))     # seconds between cycles
 MAX_FAILS   = 5                                            # auto-disable a feed after N straight errors
+BACKOFF_MAX = int(os.environ.get("CRAWL_BACKOFF_MAX", "300"))  # cap the self-throttle sleep
 
 def _now():
     return datetime.datetime.now(datetime.timezone.utc)
@@ -186,16 +187,25 @@ def main():
         print(f"[cycle] new={n} seen={seen} errors={err}")
         return
     print(f"[worker] running · freshness={FRESH_HOURS}h · batch={BATCH} · every {SLEEP}s (Ctrl-C to stop)")
+    backoff = 0                                          # grows when the DB is unhappy, resets on a clean cycle
     while True:
         try:
             n, seen, err = run_cycle()
             ts = _now().strftime("%H:%M:%S")
+            # A cycle that's ALL errors means the DB/feeds are struggling — self-throttle instead
+            # of pounding it every SLEEP seconds (this is what tipped the free tier over before).
+            if seen == 0 and err and err >= max(1, BATCH // 2):
+                backoff = min(BACKOFF_MAX, (backoff or SLEEP) * 2)
+                print(f"[{ts}] new={n} seen={seen} errors={err} — backing off {backoff}s")
+                time.sleep(backoff); continue
+            backoff = 0
             print(f"[{ts}] new={n} seen={seen} errors={err}")
             time.sleep(SLEEP if seen else max(SLEEP, 120))  # idle longer when everything's fresh
         except KeyboardInterrupt:
             print("\n[worker] stopped."); return
         except Exception as e:
-            print("[worker] cycle error:", str(e)[:160]); time.sleep(SLEEP)
+            backoff = min(BACKOFF_MAX, (backoff or SLEEP) * 2)
+            print("[worker] cycle error:", str(e)[:160], f"— backing off {backoff}s"); time.sleep(backoff)
 
 if __name__ == "__main__":
     main()

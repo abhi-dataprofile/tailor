@@ -563,7 +563,13 @@ def _cached_pool(params):
     hit = _POOL_CACHE.get(key)
     if hit and hit[0] > now:
         return hit[1]
-    rows = sb.select("jobs", params)
+    try:
+        rows = sb.select("jobs", params, timeout=14)            # fail fast — never hang the UI
+    except Exception:
+        if hit:                                                 # DB slow/overloaded → serve the last-known
+            _POOL_CACHE[key] = (now + 20, hit[1])               # back off the DB for 20s
+            return hit[1]
+        raise
     _POOL_CACHE[key] = (now + _POOL_TTL, rows)
     if len(_POOL_CACHE) > 300:                                   # bound memory: drop expired
         for k in [k for k, v in list(_POOL_CACHE.items()) if v[0] <= now]:
@@ -576,9 +582,14 @@ def _user_ctx(user):
     now = time.time(); hit = _USER_CACHE.get(user)
     if hit and hit[0] > now:
         return hit[1], hit[2]
-    prof = _profile(user)
-    states = {r["job_id"]: r["status"] for r in
-              sb.select("user_jobs", {"user_id": f"eq.{user}", "select": "job_id,status"})}
+    try:
+        prof = _profile(user)
+        states = {r["job_id"]: r["status"] for r in
+                  sb.select("user_jobs", {"user_id": f"eq.{user}", "select": "job_id,status"}, timeout=10)}
+    except Exception:
+        if hit:                                                 # serve stale profile/state on a slow DB
+            return hit[1], hit[2]
+        return {"skills": [], "title": "", "memory": {}}, {}    # empty defaults → ranking degrades, never crashes
     _USER_CACHE[user] = (now + 30, prof, states)
     return prof, states
 
@@ -607,13 +618,13 @@ def _apply_signals(user):
     blocked_co, manual_co = set(), set()
     try:
         apps = sb.select("applications", {"user_id": f"eq.{user}", "select": "job_id,status",
-                "status": "in.(blocked_captcha,failed_permanent)"}) or []
+                "status": "in.(blocked_captcha,failed_permanent)"}, timeout=10) or []
         bids = [str(a["job_id"]) for a in apps if a.get("status") == "blocked_captcha" and a.get("job_id")]
         mids = [str(a["job_id"]) for a in apps if a.get("status") == "failed_permanent" and a.get("job_id")]
         idmap = {}
         allids = list({*bids, *mids})
         if allids:
-            for j in sb.select("jobs", {"id": f"in.({','.join(allids)})", "select": "id,company_slug"}) or []:
+            for j in sb.select("jobs", {"id": f"in.({','.join(allids)})", "select": "id,company_slug"}, timeout=10) or []:
                 idmap[str(j["id"])] = j.get("company_slug")
         blocked_co = {idmap.get(i) for i in bids if idmap.get(i)}
         manual_co = {idmap.get(i) for i in mids if idmap.get(i)}

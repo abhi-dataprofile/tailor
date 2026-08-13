@@ -22,7 +22,7 @@ PRIORITY = {
         "affirm","confluent","canva","duolingo","cohere","sourcegraph"],
     "ashby": ["openai","notion","ramp","linear","plaid","reddit","snowflake","benchling","confluent",
         "zapier","deel","pinecone","weaviate","cohere","runway","perplexity","harvey","cursor","replit"],
-    "smartrecruiters": ["BoschGroup","SGS","Continental","Equinox","PublicStorage","Accor","Experian","Wise","WesternDigital","Colliers","Visa","WeWork","Wayfair","ASOS"],
+    "smartrecruiters": ["Equinox","PublicStorage","Accor","Experian","Wise","WesternDigital","Colliers","Visa","WeWork","Wayfair","ASOS"],
     "recruitee": ["bunq","personio","gorgias"],
 }
 
@@ -224,7 +224,7 @@ def _smartrecruiters(slug, timeout):
                               "experience": (x.get("experienceLevel") or {}).get("label"),
                               "ref": x.get("refNumber"), "remote": loc.get("remote"), "hybrid": loc.get("hybrid")})
         total = data.get("totalFound", 0); off += len(items)
-        if not items or off >= total or off >= 800:
+        if not items or off >= total or off >= 150:   # hard cap per company — keep the index lean
             break
 
 def _recruitee(slug, timeout):

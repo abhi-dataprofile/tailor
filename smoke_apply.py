@@ -179,6 +179,7 @@ def main():
     # Stage 6 — drive the REAL browser engine, DRY (fills everything, never submits).
     def s6():
         standing = (PROFILE["data"].get("standing")) or {}
+        standing = engine._enrich_standing(PROFILE, standing)   # same path apply_one uses
         res = engine.submit_application(JOB, ANS, RESUME["html"], dry=True, standing=standing)
         backend = res.get("backend")
         status = res.get("status")

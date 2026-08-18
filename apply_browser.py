@@ -200,14 +200,15 @@ ANSWER_KEYS = [
  ("full_name", ["full name","legal name","your name"]),
  ("email", ["email"]),
  ("phone", ["phone","mobile number","contact number"]),
- ("current_location", ["current location","where are you located","currently located","where do you live","based in","city, state","location (city","your location","where are you based"]),
+ ("current_location", ["current location","where are you located","currently located","where do you live","based in","city, state","city and state","location (city","your location","where are you based"]),
  ("current_company", ["current company","current employer","previous employer","most recent employer"]),
+ ("current_title", ["current or previous job title","current job title","most recent title","current title","your job title","job title","current role"]),
  ("linkedin", ["linkedin"]),
  ("github", ["github"]),
  ("portfolio", ["portfolio"]),
  ("website", ["personal website","other website","personal url","website"]),
  ("work_authorized", ["authorized to work","legally authorized","eligible to work","right to work","authorization to work","work authorization in"]),
- ("needs_sponsorship", ["require sponsorship","need sponsorship","visa sponsorship","sponsorship for employment","require the company to file","now or in the future require","require our company to file","require immigration"]),
+ ("needs_sponsorship", ["require sponsorship","need sponsorship","visa sponsorship","sponsorship for employment","require the company to file","now or in the future require","require our company to file","require immigration","sponsor you","to sponsor","sponsor your","require us to sponsor","will you require"]),
  ("citizenship", ["citizenship","country of citizenship","citizen of"]),
  ("visa_type", ["type of visa","which visa","work permit","immigration status","current visa","visa status"]),
  ("work_auth_basis", ["authorization basis","basis for your work","work authorization type","authorization status"]),
@@ -223,6 +224,10 @@ ANSWER_KEYS = [
  ("veteran", ["veteran"]),
  ("disability", ["disab"]),
  ("how_heard", ["how did you hear"]),
+ ("school", ["school","university","college","institution attended","most recent school"]),
+ # residence COUNTRY — kept last so specific country phrasings (citizenship, "countries you
+ # anticipate") match their own keys first; a bare "Country" field falls through to here.
+ ("country", ["country where you","country you reside","country of residence","currently reside","which country","select the country","your country","country"]),
 ]
 _FP_STOP = set((
     "a an the of to in on for and or is are do does did you your we our will would can could "
@@ -365,6 +370,39 @@ def _group_label(r):
     except Exception:
         return ""
 
+# marketing / communications opt-ins — declining is the privacy-preserving default (matches the
+# app's consent stance), so we don't block a submission on an optional promotional checkbox.
+_OPTIN_RE = re.compile(
+    r"opt[- ]?in|receive (marketing|promotional|sms|text|whatsapp|email|recruiting)|"
+    r"subscribe|marketing communications|promotional (messages|emails)|text messages?|newsletter", re.I)
+def _default_optout(label):
+    return "No" if _OPTIN_RE.search(label or "") else None
+
+def _country_eq(a, b):
+    """True if two strings name the same country — so an answer of 'United States' matches an
+    option rendered as 'US'/'USA', which plain substring matching misses."""
+    try:
+        import geo
+        ca, cb = geo.country_of(a), geo.country_of(b)
+        return bool(ca) and ca == cb
+    except Exception:
+        return False
+
+def _opt_match(ans, texts):
+    """Index of the option in `texts` that best matches answer `ans` (case-insensitive substring
+    either direction, then country-equivalence), or None. Shared by checkgroups and comboboxes."""
+    a = str(ans or "").strip().lower()
+    if not a:
+        return None
+    for i, t in enumerate(texts):
+        tl = (t or "").strip().lower()
+        if tl and (a == tl or a in tl or tl in a):
+            return i
+    for i, t in enumerate(texts):                      # country codes/names: US ↔ United States
+        if _country_eq(a, t):
+            return i
+    return None
+
 _DATE_WORDS = re.compile(r"\b(date|start|available|availability|when can you (start|begin)|earliest|notice period)\b", re.I)
 
 def _looks_date(label, el):
@@ -489,7 +527,7 @@ def _fill_combobox(page, el, value):
             pick = None
             for o in opts:
                 t = (o.inner_text() or "").strip().lower()
-                if t and (vl[:14] in t or t[:14] in vl):
+                if t and (vl[:14] in t or t[:14] in vl or _country_eq(vl, t)):
                     pick = o; break
             pick = pick or opts[0]
             pick.click(); page.wait_for_timeout(200)
@@ -590,8 +628,8 @@ def _fill_questions(page, bank, context=""):
             if not pick:                                         # 2) an option matching a saved answer
                 a = _answer_for(glabel, bank)
                 if a:
-                    al = str(a).lower()
-                    pick = next((c for txt, c in opts if txt and (al in txt.lower() or txt.lower() in al)), None)
+                    mi = _opt_match(a, [txt for txt, _ in opts])
+                    pick = opts[mi][1] if mi is not None else None
             if pick:
                 try: pick.check()
                 except Exception:
@@ -616,6 +654,8 @@ def _fill_questions(page, bank, context=""):
                 continue
             if q not in _yn:
                 a = _answer_for(q, bank)
+                if a is None:
+                    a = _default_optout(q)                       # decline marketing opt-ins by default
                 _yn[q] = (str(a).strip().lower() if a is not None else None)
                 if a is None:                                    # sensitive → standing only; else ask
                     unfilled.append({"label": q, "type": "yesno"})
@@ -640,6 +680,8 @@ def _fill_questions(page, bank, context=""):
                 continue
             if _is_combobox(el):
                 if ans and _fill_combobox(page, el, ans): continue
+                d = _default_optout(label)                     # decline marketing opt-ins by default
+                if d and _fill_combobox(page, el, d): continue
                 if _is_required(el):
                     meta = {"label": label or "(choice)", "type": "combo"}
                     if _SENSITIVE_RE.search(label or ""):
@@ -660,8 +702,19 @@ def _fill_questions(page, bank, context=""):
             continue
     # LLM pass: answer the non-sensitive required questions from the candidate's own material.
     answered = _llm_answer_fields(context, [m for _, m in pending], (bank or {}).get("_answer_prompt", "")) if (pending and context) else {}
+    def _lookup(label):
+        """Exact label, else best fingerprint overlap — a small local model often reworards the
+        JSON key it echoes back, so an exact-key lookup alone drops otherwise-good answers."""
+        if label in answered:
+            return answered[label]
+        lf = _fp(label); best, bs = None, 0
+        for k, v in answered.items():
+            kf = _fp(k); sh = len(lf & kf)
+            if sh > bs and sh >= 2 and sh >= 0.6 * min(len(lf), len(kf)):
+                bs, best = sh, v
+        return best
     for el, meta in pending:
-        a = answered.get(meta["label"])
+        a = _lookup(meta["label"])
         done = False
         if a:
             try:
@@ -670,15 +723,13 @@ def _fill_questions(page, bank, context=""):
                 elif meta["type"] == "combo":
                     done = _fill_combobox(page, el, a)
                 elif meta["type"] == "checkgroup":              # el is the list of checkboxes
-                    al = str(a).lower()
-                    for c in el:
-                        rl = (_radio_label(c) or "").lower()
-                        if rl and (al in rl or rl in al):
-                            try: c.check(); done = True
-                            except Exception:
-                                try: c.click(); done = True
-                                except Exception: pass
-                            break
+                    labels = [_radio_label(c) or "" for c in el]
+                    mi = _opt_match(a, labels)
+                    if mi is not None:
+                        try: el[mi].check(); done = True
+                        except Exception:
+                            try: el[mi].click(); done = True
+                            except Exception: pass
                 else:
                     el.fill(a); done = True
             except Exception:

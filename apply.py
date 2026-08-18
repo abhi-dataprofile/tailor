@@ -113,6 +113,39 @@ def builtins_from(profile):
             "email": profile.get("email") or "",
             "phone": (profile.get("contact") or "").split("·")[0].strip()}
 
+def _enrich_standing(profile, standing):
+    """Merge deterministic, NON-invented facts from the profile into the answer bank so common
+    NON-sensitive fields (city, country, school, current employer) fill without depending on the
+    LLM. Never overrides an explicit standing answer; never touches sensitive facts."""
+    import geo
+    data = profile.get("data") or {}
+    out = dict(standing or {})
+    def sd(k, v):
+        v = (v or "").strip() if isinstance(v, str) else v
+        if v and not out.get(k):
+            out[k] = v
+    # location: prefer a structured address, else the free-text contact line
+    addr = data.get("address") if isinstance(data.get("address"), dict) else {}
+    location = ", ".join(x for x in [addr.get("city"), addr.get("state")] if x) \
+               or (profile.get("contact") or data.get("location") or "")
+    # a contact line can be "phone · City, ST" — keep the geo-ish chunk, drop phone/email
+    if "·" in location:
+        parts = [p.strip() for p in location.split("·")]
+        location = next((p for p in reversed(parts) if p and "@" not in p and not re.search(r"\d{3}.*\d{3}", p)), location)
+    if location:
+        sd("current_location", location)
+        country = (addr.get("country") or geo.country_of(location) or "").strip()
+        if country:
+            sd("country", country); sd("desired_location", country)
+    sd("current_title", profile.get("title") or data.get("title"))
+    edu = data.get("education") or profile.get("education") or []
+    if edu:
+        sd("school", (edu[0] or {}).get("school"))
+    exp = data.get("exp") or profile.get("experience") or []
+    if exp:
+        sd("current_company", (exp[0] or {}).get("company"))
+    return out
+
 def standing_lookup(standing, label):
     """A user's explicit answer for a sensitive question, or None (never guessed)."""
     low = (label or "").lower()
@@ -283,6 +316,7 @@ def apply_one(user_id, profile, job, review=False, force_live=False):
         return "needs_review"
     resume = resume_for(user_id, job["id"], profile, job)
     standing = (profile.get("data") or {}).get("standing") or {}   # answer bank for the browser engine
+    standing = _enrich_standing(profile, standing)                 # + deterministic city/country/school/employer
     orch = (profile.get("data") or {}).get("orchestration") or {}
     cover = ""
     if (orch.get("answers") or {}).get("cover_letter"):

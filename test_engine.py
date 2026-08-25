@@ -310,6 +310,27 @@ def test_consent_prefers_rejecting():
           src.find("_dismiss_consent(page)") < src.find("_reveal_apply(page)"))
 
 
+def test_opening_a_posting_is_not_an_application():
+    section("Opening a job posting is NOT an application")
+    import os as _os
+    root = _os.path.dirname(_os.path.abspath(__file__))
+    srv = open(_os.path.join(root, "serve.py")).read()
+    dash = open(_os.path.join(root, "dashboard.html")).read()
+    blk = srv.split("/api/track", 1)[1][:2600]
+    check("/api/track defaults to draft, not submitted",
+          'body.get("status") or "draft"' in blk)
+    check("submitted_at is set only for genuinely sent statuses",
+          'now_iso if sent else None' in blk)
+    check("the dashboard records opened postings as draft",
+          'trackServer(j,"draft"' in dash)
+    check("no button claims to 'Apply' when it only opens tabs",
+          "Apply to top" not in dash)
+    check("a name/skills snippet is never sent as a résumé",
+          "Skills: \"+(s.skills" not in dash)
+    check("'draft' reads as not-applied in the UI",
+          'Not applied yet' in open(_os.path.join(root, "app_status.py")).read())
+
+
 def test_dead_feed_is_not_silent():
     section("Job sources · a DEAD feed must not masquerade as 'no openings'")
     import ats
@@ -335,7 +356,8 @@ def main():
               test_retry_scheduling, test_dedup, test_claim_lock, test_enrich_no_invention,
               test_crawler_throttle, test_crawler_cycle_on_dead_db, test_read_resilience,
               test_dead_feed_is_not_silent, test_form_not_ready_is_not_success,
-              test_never_submits_without_resume, test_consent_prefers_rejecting):
+              test_never_submits_without_resume, test_consent_prefers_rejecting,
+              test_opening_a_posting_is_not_an_application):
         try:
             t()
         except Exception as e:

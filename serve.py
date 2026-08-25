@@ -1132,7 +1132,10 @@ class H(SimpleHTTPRequestHandler):
             if not jid:
                 return self._json(200, {"ok": False, "detail": "no job_id"})
             try:
-                status = body.get("status") or "submitted_unconfirmed"
+                # DEFAULT IS 'draft' — merely opening a posting is NOT an application.
+                # Recording an opened tab as "submitted" is the exact dishonesty this
+                # lifecycle exists to prevent; only an explicit "I applied" says sent.
+                status = body.get("status") or "draft"
                 resume_html = body.get("resume_html") or ""
                 prior = sb.select("applications", {"user_id": f"eq.{user}", "job_id": f"eq.{jid}",
                                                    "select": "status,submitted_at,resume_html"}) or []
@@ -1140,8 +1143,19 @@ class H(SimpleHTTPRequestHandler):
                 if p.get("status") == "confirmed":
                     return self._json(200, {"ok": True, "kept": "confirmed"})
                 now_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+                # a résumé the caller didn't supply is built here from the real profile —
+                # never a name/skills stub standing in for a résumé.
+                if not resume_html and not p.get("resume_html"):
+                    try:
+                        import resume_build
+                        prof = (sb.select("profiles", {"user_id": f"eq.{user}", "select": "*", "limit": "1"}) or [{}])[0]
+                        if prof:
+                            resume_html = resume_build.build_resume_html(prof, {})
+                    except Exception:
+                        pass
+                sent = status in ("submitted_unconfirmed", "confirmed", "submitted")
                 row = {"user_id": user, "job_id": jid, "status": status, "human_in_loop": True,
-                       "submitted_at": p.get("submitted_at") or now_iso,
+                       "submitted_at": p.get("submitted_at") or (now_iso if sent else None),
                        "receipt": {"backend": body.get("backend") or "you",
                                    "detail": body.get("detail") or "Marked applied on the company site.",
                                    "url": body.get("url"), "job": body.get("label")}}

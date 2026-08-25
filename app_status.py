@@ -18,7 +18,7 @@ SETTLED = ("confirmed", "submitted_unconfirmed", "blocked_captcha", "failed_perm
 
 # human-readable labels + a coarse tone for the UI badge
 LABELS = {
-    "draft":                 ("Draft",              "neutral"),
+    "draft":                 ("Not applied yet",    "neutral"),   # opened / prepared, never sent
     "queued":                ("In queue",           "neutral"),
     "filling":               ("Agent working…",     "info"),
     "needs_you":             ("Needs your answer",  "warn"),

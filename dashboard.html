@@ -196,7 +196,7 @@ a{color:var(--primary-tint)}
     <div class="prog" id="prog" style="display:none"><span class="spin"></span><div class="bar"><i id="progBar"></i></div><span id="progTxt"></span></div>
 
     <div class="sechead"><h2>Top job matches</h2><span class="sub" id="matchSub">ranked against your résumé</span>
-      <div class="right"><button class="btn" onclick="applyTop()"><svg class="ic" viewBox="0 0 24 24"><polygon points="13 2 4 14 11 14 10 22 20 10 13 10 13 2"/></svg> Apply to top 5</button></div></div>
+      <div class="right"><button class="btn" onclick="applyTop()" title="Opens the postings so you can apply yourself — nothing is submitted for you"><svg class="ic" viewBox="0 0 24 24"><polygon points="13 2 4 14 11 14 10 22 20 10 13 10 13 2"/></svg> Open top 5</button></div></div>
     <div class="cards" id="cards"><div class="skel"></div><div class="skel"></div><div class="skel"></div><div class="skel"></div><div class="skel"></div></div>
 
     <style>
@@ -649,14 +649,18 @@ function findJob(url){return JOBS.find(j=>j.url===url)||{url,title:(STATE[url]||
 function applyJob(url){const j=findJob(url);const rz=resumeHtml();setState(url,"submitted",j,{resume_html:rz});window.open(url,"_blank","noopener");renderAll();trackServer(j,"submitted_unconfirmed",rz).then(loadActivity);toast("Opened posting — tracked with your résumé");}
 function passJob(url){setState(url,"skipped",findJob(url));renderAll();}
 function unTrack(url){delete STATE[url];localStorage.setItem("tailor_dash_state",JSON.stringify(STATE));renderAll();}
-function applyTop(){const l=visible().slice(0,5);if(!l.length){toast("No matches to apply to");return;}
-  const rz=resumeHtml();l.forEach((j,i)=>{setState(j.url,"submitted",j,{resume_html:rz});trackServer(j,"submitted_unconfirmed",rz);if(i<3)window.open(j.url,"_blank","noopener");});renderAll();loadActivity();toast(`Tracked ${l.length} — opened the first ${Math.min(3,l.length)}`);}
+/* Opens the postings for YOU to apply to. This is not the agent and it submits nothing,
+   so each job is recorded as 'draft' (opened, not applied). Use "Mark applied" once you've
+   actually submitted — claiming a sent application from an opened tab is what made the
+   activity feed lie about what happened. */
+function applyTop(){const l=visible().slice(0,5);if(!l.length){toast("No matches to open");return;}
+  const rz=resumeHtml();l.forEach((j,i)=>{setState(j.url,"saved",j,{resume_html:rz});trackServer(j,"draft",rz);if(i<3)window.open(j.url,"_blank","noopener");});renderAll();loadActivity();toast(`Opened ${Math.min(3,l.length)} of ${l.length} — apply on the site, then Mark applied`);}
 /* record a manual/self-apply on the server so it appears in Activity WITH the résumé */
 function trackServer(job,status,resume_html){
   if(!(job&&job.id))return Promise.resolve();
   return fetch("/api/track",{method:"POST",headers:{"Content-Type":"application/json",...authHeaders()},
     body:JSON.stringify({job_id:job.id,status:status,resume_html:resume_html||"",url:job.url,label:(job.title||"")+" · "+(job.company||job.company_slug||""),
-      detail:"You opened the posting to apply — mark confirmed once you hear back.",backend:"you"})}).catch(()=>{});
+      detail:"Opened the posting — nothing submitted yet. Apply on the site, then hit Mark applied.",backend:"you"})}).catch(()=>{});
 }
 function exportCSV(){const rows=[["company","role","status","when","url"]].concat(Object.entries(STATE).map(([u,s])=>[s.company,s.title,s.status,s.at,u]));
   const csv=rows.map(r=>r.map(x=>'"'+String(x||"").replace(/"/g,'""')+'"').join(",")).join("\n");
@@ -722,7 +726,10 @@ function answersFor(){
   }catch(e){return {};}
 }
 function resumeHtml(){try{const d=JSON.parse(localStorage.getItem("tailor_ollama")||"{}");const s=d.state||{};
-  return s.resumeDoc||("<html><body style='font-family:sans-serif'><h1>"+(s.name||"")+"</h1><p>"+(s.contact||"")+"</p><p>"+(s.summary||"")+"</p><p>Skills: "+(s.skills||"")+"</p></body></html>");
+  /* only a REAL tailored résumé counts. With no resumeDoc we send "" so the server builds a
+     full résumé from the saved profile — a name/summary/skills snippet is not a résumé and
+     must never be attached to an application as though it were one. */
+  return s.resumeDoc||"";
 }catch(e){return "<html><body>Resume</body></html>";}}
 function isLive(){
   if($("liveMode")&&$("liveMode").checked)return true;

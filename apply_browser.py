@@ -652,6 +652,13 @@ def _is_bare_country(v):
     except Exception:
         return False
 
+# Every board words "I'd rather not answer" differently, and a demographics question is
+# exactly where a wrong pick matters. These are treated as the same choice.
+_DECLINE = re.compile(
+    r"prefer not to (say|answer|disclose|respond)|decline to (self[- ]?identify|answer|state)|"
+    r"do not wish to (answer|disclose|identify)|don'?t wish to|choose not to (disclose|answer)|"
+    r"rather not say|not disclosed?|^decline$|^undisclosed$|i do not wish", re.I)
+
 def _opt_score(ans, text):
     """How well one option matches an answer, 0..1.
 
@@ -666,6 +673,8 @@ def _opt_score(ans, text):
         return 1.0
     if _is_bare_country(a) and _country_eq(a, t):
         return 0.95
+    if _DECLINE.search(a) and _DECLINE.search(t):
+        return 0.92                      # "Prefer not to say" == "Decline To Self Identify"
     aw = re.findall(r"[a-z0-9+]+", _norm_place(a))
     tw = re.findall(r"[a-z0-9+]+", _norm_place(t))
     if not aw or not tw:

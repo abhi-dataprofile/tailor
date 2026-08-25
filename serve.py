@@ -879,7 +879,8 @@ def orchestration(user):
                       "domain_gap": g("execution", "domain_gap", _envd("APPLY_DOMAIN_GAP", 8)),
                       "retries": g("execution", "retries", _envd("APPLY_MAX_RETRIES", 3)),
                       "claim_ttl": g("execution", "claim_ttl", _envd("APPLY_CLAIM_TTL_MIN", 15)),
-                      "timeout": g("execution", "timeout", 45)},
+                      "timeout": g("execution", "timeout", 45),
+                      "apply_timeout": g("execution", "apply_timeout", _envd("APPLY_TIMEOUT_S", 300))},
         "model": {"provider": g("model", "provider", os.environ.get("LLM_PROVIDER", "auto")),
                   "model": g("model", "model", ""), "temp": g("model", "temp", 0.4)},
         # every prompt that HAS a default is editable — a hardcoded list here silently dropped
@@ -1435,6 +1436,15 @@ class H(SimpleHTTPRequestHandler):
                     _answers["last_name"] = " ".join(_n[1:])
             except Exception:
                 pass
+            # How long one application may take. 150s was set when the agent only filled a
+            # form; it now navigates several hops, opens each combobox to read its real
+            # options, and makes two model calls (recall, then compose).
+            try:
+                _apply_budget = int(((_cfg.get("execution") or {}).get("apply_timeout")
+                                     or os.environ.get("APPLY_TIMEOUT_S", 300)))
+            except Exception:
+                _apply_budget = 300
+            _apply_budget = max(60, min(900, _apply_budget))
             _jobmeta = {"url": apply_url, "title": body.get("label", ""), "id": body.get("job_id")}
             try:
                 if jr:
@@ -1449,10 +1459,15 @@ class H(SimpleHTTPRequestHandler):
             try:
                 p = subprocess.run([py, "-c",
                     "import sys,json,apply_browser as ab;print(json.dumps(ab.submit(**json.load(sys.stdin))))"],
-                    input=payload, capture_output=True, text=True, timeout=150, cwd=HERE)
+                    input=payload, capture_output=True, text=True, timeout=_apply_budget, cwd=HERE)
                 lines = [l for l in (p.stdout or "").splitlines() if l.strip().startswith("{")]
                 res = json.loads(lines[-1]) if lines else {"ok": False, "status": "error",
                        "detail": (p.stderr or "no output — is Playwright set up? see SETUP.md")[:220]}
+            except subprocess.TimeoutExpired:
+                res = {"ok": False, "status": "timeout",
+                       "detail": f"This form took longer than {_apply_budget}s to work through — "
+                                 f"it will be retried. Raise 'Apply timeout' in Agent → Execution "
+                                 f"if it keeps happening on long forms."}
             except Exception as e:
                 res = {"ok": False, "status": "error", "detail": str(e)[:200]}
             rec = {"at": time.strftime("%Y-%m-%d %H:%M:%S"), "user": user, "backend": "browser",

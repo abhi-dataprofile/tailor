@@ -59,4 +59,4 @@ def classify(res):
         return "needs_you"        # we never reached a usable form → a human should look
     if raw in ("unsupported", "unsupported_form", "no_submit_button", "blocked"):
         return "failed_permanent"
-    return "failed_transient"   # http_*, network_error, browser_error, error, timeouts
+    return "failed_transient"   # http_*, network_error, browser_error, timeout, error

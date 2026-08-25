@@ -1023,6 +1023,36 @@ def test_submission_is_only_confirmed_when_the_form_is_gone():
     check("and passed to the verifier", "_verify(page, frame, before=_before_text)" in src)
 
 
+def test_apply_budget_and_decline_matching():
+    section("Timeouts read like timeouts; 'prefer not to say' means decline")
+    import apply_browser as ab, os as _os
+    root = _os.path.dirname(_os.path.abspath(__file__))
+    srv = open(_os.path.join(root, "serve.py")).read()
+    dash = open(_os.path.join(root, "dashboard.html")).read()
+
+    # a raw Python traceback in the activity feed tells you nothing actionable
+    check("the apply budget is configurable, not hardcoded at 150s",
+          "timeout=_apply_budget" in srv and "timeout=150" not in srv)
+    check("it is clamped to something sane", "max(60, min(900, _apply_budget))" in srv)
+    check("it is editable in the Agent board", 'data-c="execution.apply_timeout"' in dash)
+    check("a timeout is reported as one, with what to do about it",
+          "subprocess.TimeoutExpired" in srv and "Raise 'Apply timeout'" in srv)
+    import app_status
+    check("and is retryable", app_status.classify({"status": "timeout"}) == "failed_transient")
+
+    # every board words "I'd rather not answer" differently — and demographics is exactly
+    # where picking the wrong option matters
+    for opts in (["Yes", "No", "Decline To Self Identify"],
+                 ["Male", "Female", "Non-binary", "I do not wish to answer"],
+                 ["Hispanic or Latino", "Not Hispanic or Latino", "Prefer not to disclose"]):
+        for ans in ("Prefer not to say", "I do not wish to answer", "Choose not to disclose"):
+            i = ab._opt_match(ans, opts)
+            check(f"{ans!r} → a decline option in {opts[-1][:22]!r}",
+                  i is not None and bool(ab._DECLINE.search(opts[i])),
+                  opts[i] if i is not None else "(blank)")
+    check("a real answer is unaffected", ab._opt_match("Male", ["Male", "Female"]) == 0)
+
+
 def test_dead_feed_is_not_silent():
     section("Job sources · a DEAD feed must not masquerade as 'no openings'")
     import ats
@@ -1060,7 +1090,8 @@ def main():
               test_prompt_and_execution_are_editable,
               test_answered_questions_are_never_withheld,
               test_episodic_memory_and_recall,
-              test_submission_is_only_confirmed_when_the_form_is_gone):
+              test_submission_is_only_confirmed_when_the_form_is_gone,
+              test_apply_budget_and_decline_matching):
         try:
             t()
         except Exception as e:

@@ -280,31 +280,42 @@ def plan(schema, bank, context="", extra_prompt="", trace=None):
       · the candidate's own saved answers (answer bank / standing facts)
       · for SENSITIVE questions, that is the ONLY source — never the model
       · one LLM call for everything still unanswered, seeing all of it together
+
+    Every field's outcome is recorded in `trace["decisions"]` with the reason, so the whole
+    form can be read back as: what was asked, what we knew, what we did, and why.
     """
-    out, ask = {}, []
+    out, ask, why = {}, [], {}
     for f in schema:
         a = ab._answer_for(f["label"], bank)
         if a not in (None, ""):
             out[f["key"]] = {"answer": str(a), "source": "profile"}
+            why[f["key"]] = "you answered this before — reused from your profile"
             continue
         if f["type"] == "consent":
-            continue                                    # the human accepts agreements, not us
+            why[f["key"]] = "a legal agreement — only you can accept it"
+            continue
         if f["sensitive"]:
-            d = ab._default_optout(f["label"])          # marketing opt-ins may be declined
+            d = ab._default_optout(f["label"])
             if d:
                 out[f["key"]] = {"answer": d, "source": "default"}
-            continue                                    # otherwise: standing only → unanswered
+                why[f["key"]] = "a marketing opt-in — declined by default"
+                continue
+            why[f["key"]] = ("legal / compensation / demographic — never answered by the model; "
+                             "add it under Add answers and it is reused everywhere")
+            continue
         d = ab._default_optout(f["label"])
         if d:
             out[f["key"]] = {"answer": d, "source": "default"}
+            why[f["key"]] = "a marketing opt-in — declined by default"
             continue
         if f["required"]:
             ask.append(f)
+            why[f["key"]] = "nothing saved for it — asked the model"
+        else:
+            why[f["key"]] = "optional and nothing saved — left blank"
 
-    # A saved answer that matches NO option is useless to the form: "Yes" against a Right-to-
-    # Work select whose choices are full sentences fills nothing, and the field silently stays
-    # blank. Hand those to the model WITH the real options and the answer as a hint, so it can
-    # pick the option the candidate actually meant.
+    # A saved answer that matches NO option is useless to the form: "Yes" against a select
+    # whose choices are full sentences fills nothing and the field stays silently blank.
     for f in schema:
         if not f["options"] or f["key"] not in out:
             continue
@@ -314,12 +325,14 @@ def plan(schema, bank, context="", extra_prompt="", trace=None):
         if f["sensitive"]:
             # NEVER let the model reinterpret a legal or compensation answer. Asked to map
             # "Yes" onto a Right-to-Work select, it chose "I have the right to work without
-            # sponsorship" for a candidate who needs sponsorship — a false statement on a real
-            # application. The candidate picks from the real options themselves.
+            # sponsorship" for a candidate who needs sponsorship — false, on a real application.
             del out[f["key"]]
+            why[f["key"]] = (f"your saved answer {chosen!r} is not one of the options this form "
+                             f"offers, and it is a legal question — pick the right option yourself")
             continue
         ask.append({**f, "_hint": chosen})
         del out[f["key"]]
+        why[f["key"]] = f"your saved answer {chosen!r} matches no option — asked the model to map it"
 
     if trace is not None:
         trace["answered_from_profile"] = {f["key"]: out[f["key"]] for f in schema if f["key"] in out}
@@ -327,6 +340,12 @@ def plan(schema, bank, context="", extra_prompt="", trace=None):
         trace["withheld_sensitive"] = [f["label"] for f in schema
                                        if f["sensitive"] and f["key"] not in out]
         trace["left_to_human"] = [f["label"] for f in schema if f["type"] == "consent"]
+        if not ask:
+            trace["why_no_model_call"] = ("every required question was already answered from your "
+                                          "profile, or is one only you may answer")
+        elif not context:
+            trace["why_no_model_call"] = "no candidate material was available to answer from"
+
     if ask and context:
         fields = []
         for f in ask:
@@ -352,6 +371,20 @@ def plan(schema, bank, context="", extra_prompt="", trace=None):
                 f = best
             if f and str(ans).strip():
                 out[f["key"]] = {"answer": str(ans).strip(), "source": "llm"}
+                why[f["key"]] = "answered by the model from your résumé and stated facts"
+        for f in ask:
+            if f["key"] not in out:
+                why[f["key"]] = "the model had nothing to base an answer on — needs you"
+
+    if trace is not None:
+        # one row per field: what was asked, what we knew, what we did, and why
+        trace["decisions"] = [{
+            "label": f["label"], "type": f["type"], "required": f["required"],
+            "sensitive": f["sensitive"], "options": f["options"][:10],
+            "answer": (out.get(f["key"]) or {}).get("answer", ""),
+            "source": (out.get(f["key"]) or {}).get("source", "unanswered"),
+            "why": why.get(f["key"], ""),
+        } for f in schema]
     return out
 
 

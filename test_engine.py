@@ -612,6 +612,15 @@ def test_decision_trace_is_recorded():
     check("the trace reaches the stored record", '"field_trace"' in srv)
     check("the detail endpoint exposes it", '"trace": rec.get("field_trace")' in srv)
     check("the UI shows the decision chain", "How the agent decided" in dash)
+    # "why wasn't this filled?" must be answerable without reading code
+    check("every field records WHY it was or wasn't answered", '"why": why.get(' in
+          open(_os.path.join(root, "board_agents.py")).read())
+    check("the UI renders a per-field decision table", 'class="dtab"' in dash)
+    for col in ("Question", "Answer", "Why"):
+        check(f"decision table column: {col}", f"<th>{col}</th>" in dash)
+    check("it explains when the model was NOT called", "why_no_model_call" in dash)
+    check("HOW_IT_WORKS.md documents the data model and flow",
+          _os.path.exists(_os.path.join(root, "HOW_IT_WORKS.md")))
     for label in ("Your data it used", "Fields read from the form", "Sent to the model",
                   "Withheld (yours to answer)", "System prompt", "Raw model response"):
         check(f"UI surfaces: {label}", label in dash)

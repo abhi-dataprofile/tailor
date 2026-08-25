@@ -903,6 +903,45 @@ def test_prompt_and_execution_are_editable():
         check(f"answers: {q[:44]}", ab._answer_for(q, bank) == want, str(ab._answer_for(q, bank)))
 
 
+def test_answered_questions_are_never_withheld():
+    section("Nothing you have already answered is withheld")
+    import apply_browser as ab, board_agents as bg
+    # the false-claim guard was matching any question containing "years of", so
+    # "Are you at least 18 years of age?" was reported back as unanswered
+    bank = {"over_18": "Yes", "years_experience": "4"}
+    check("an answered age question is used", ab._answer_for("Are you at least 18 years of age?", bank) == "Yes")
+    check("general experience still answers a general question",
+          ab._answer_for("How many years of experience do you have in overall?", bank) == "4")
+    check("but never a domain-specific one",
+          ab._answer_for("How many years of hands-on Book Keeping experience do you have?", bank) is None)
+
+    # a SENSITIVE question the candidate has answered themselves must be used, not withheld
+    schema = [{"key": "c:18", "label": "Are you at least 18 years of age?", "type": "combo",
+               "required": True, "options": ["Yes", "No"], "sensitive": True, "_el": None}]
+    tr = {}
+    p = bg.plan(schema, {"over_18": "Yes"}, context="", trace=tr)
+    check("an answered sensitive question is filled, not withheld",
+          (p.get("c:18") or {}).get("answer") == "Yes", str(p))
+    check("and it is not listed as withheld",
+          "Are you at least 18 years of age?" not in (tr.get("withheld_sensitive") or []))
+    tr2 = {}
+    bg.plan(schema, {}, context="", trace=tr2)
+    check("an UNanswered sensitive question is still withheld",
+          "Are you at least 18 years of age?" in (tr2.get("withheld_sensitive") or []))
+
+    # everything this Loenbro form asked, from one saved bank
+    full = {"preferred_language": "English", "over_18": "Yes", "commuting_distance": "Yes",
+            "certifications": "AWS Certified", "referred_by": "N/A",
+            "relatives_at_company": "N/A", "worked_here_before": "No"}
+    for q, want in (("What is your preferred language?", "English"),
+                    ("Are you local and within commuting distance to this job?", "Yes"),
+                    ("Please list any additional education, training or certifications relevant to the job (ie. OSHA, TWIC, etc.).", "AWS Certified"),
+                    ("Have you worked for Loenbro or any of its affiliates in the past?", "No"),
+                    ("Do you have any relatives or close personal friends who currently work at Loenbro? Place N/A if none.", "N/A"),
+                    ("Were you referred by a search firm or staffing agency? If not, please indicate by using N/A.", "N/A")):
+        check(f"answers: {q[:44]}", ab._answer_for(q, full) == want, str(ab._answer_for(q, full)))
+
+
 def test_dead_feed_is_not_silent():
     section("Job sources · a DEAD feed must not masquerade as 'no openings'")
     import ats
@@ -937,7 +976,8 @@ def main():
               test_answer_bank_questionnaire, test_never_claims_experience_you_dont_have,
               test_answers_by_index, test_banded_and_combo_options,
               test_saved_answers_are_tidied_and_authoritative,
-              test_prompt_and_execution_are_editable):
+              test_prompt_and_execution_are_editable,
+              test_answered_questions_are_never_withheld):
         try:
             t()
         except Exception as e:

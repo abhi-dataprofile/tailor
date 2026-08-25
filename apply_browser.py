@@ -408,10 +408,18 @@ ANSWER_KEYS = [
  ("relatives_at_company", ["relatives or close personal friends","relatives who work",
                            "friends who currently work","family members employed",
                            "related to any.{0,20}employee","know anyone who works"]),
- ("worked_here_before", ["worked for.{0,30}in the past","previously employed by",
-                         "been employed by","worked here before","former employee of",
-                         "ever been employed by"]),
- ("referred_by", ["referred by","referral source","who referred you","employee referral"]),
+ ("worked_here_before", ["worked for.{0,40}in the past","previously employed by",
+                         "been employed by","worked here before","former employee of","previously worked for",
+                         "ever been employed by","worked for.{0,40}affiliates",
+                         "or any of its affiliates"]),
+ ("referred_by", ["referred by","referral source","who referred you","employee referral",
+                  "referred to us by","staffing agency","search firm"]),
+ ("preferred_language", ["preferred language","language preference","which language",
+                         "primary language","language do you prefer"]),
+ ("commuting_distance", ["commuting distance","local and within","are you local",
+                         "live within.{0,20}miles","able to commute"]),
+ ("certifications", ["certifications","additional education, training","licenses or certifications",
+                     "any certifications","training or certifications","do you hold any certification"]),
  # from the answer-bank questionnaire — one saved answer covers every rewording a board uses
  ("currently_working", ["are you currently working","are you currently employed","currently working",
                         "current employment status"]),
@@ -464,7 +472,12 @@ _SPECIFIC_YEARS = re.compile(
 
 def _answer_for(label, bank):
     low = (label or "").lower()
-    if "year" in low and _SPECIFIC_YEARS.search(low):
+    # The guard below is about EXPERIENCE questions only. Applied to any question containing
+    # "years of", it also blocked "Are you at least 18 years of age?" — so a question the
+    # candidate had already answered was reported back to them as unanswered.
+    _is_experience_q = re.search(r"\b(experience|worked|working|hands[- ]on|expertise|"
+                                 r"proficien\w*|background)\b", low)
+    if _is_experience_q and "year" in low and _SPECIFIC_YEARS.search(low):
         # "years of hands-on Book Keeping experience", "years working on Quickbooks, GAAP" —
         # only the candidate can say, and a general total would be a false claim.
         generic = re.search(r"\b(overall|in total|total|professional|relevant)\b", low)

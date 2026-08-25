@@ -910,6 +910,8 @@ def _llm_answer_fields(context, fields, extra="", trace=None, system=""):
         raw = llm.gen(sysp, userp, json_mode=True, temp=0, max_tokens=800)
         if trace is not None:
             trace.update({"provider": (llm.available() or ["?"])[0], "system_prompt": sysp,
+                          # so "did my edit take effect?" is answerable from the record itself
+                          "prompt_source": "your edited prompt" if system else "the built-in default",
                           "context": context[:3800], "questions": qs, "raw_response": (raw or "")[:4000]})
         merged = _answers_by_id(raw, [f["label"] for f in fields]) or _merge_answer_objects(raw)
         kept = {k: v.strip() for k, v in merged.items()

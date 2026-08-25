@@ -877,6 +877,10 @@ def test_prompt_and_execution_are_editable():
     # the editor showed an EMPTY box for an unset prompt, so the rules could not be read
     check("the editor is prefilled with the active prompt", 'esc(cur[k]||def[k]||"")' in dash)
     check("an unset prompt reads as default, not customized", "!cur[k] || cur[k]===def[k]" in dash)
+    # "did my edit take effect?" must be answerable from the record, not by eyeballing the
+    # top of a scrollable box — an edit appended at the END looks identical up there
+    check("the record names which prompt was used", '"prompt_source"' in src)
+    check("the trace panel shows it with a length", "prompt_source" in dash and "chars</summary>" in dash)
     # the execution knobs were already there — make sure they stay
     for knob in ("execution.retries", "execution.timeout", "execution.claim_ttl",
                  "execution.domain_gap", "execution.headed", "modes.daily_cap", "model.provider"):

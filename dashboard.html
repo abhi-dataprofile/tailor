@@ -569,7 +569,7 @@ function renderDetail(d){
           <div class="tr-row"><b>Sent to the model</b><span>${(d.trace.sent_to_model||[]).map(q=>`<code>${esc(q.slice(0,60))}</code>`).join(" ")||("none — "+esc(d.trace.why_no_model_call||"nothing needed answering"))}</span></div>
           <div class="tr-row"><b>Withheld (yours to answer)</b><span>${((d.trace.withheld_sensitive||[]).concat(d.trace.left_to_human||[])).map(q=>`<code>${esc(q.slice(0,50))}</code>`).join(" ")||"—"}</span></div>
           ${d.trace.llm&&d.trace.llm.system_prompt?`
-          <details class="tr-more"><summary>System prompt · ${esc(d.trace.llm.provider||"model")}</summary><pre>${esc(d.trace.llm.system_prompt)}</pre></details>
+          <details class="tr-more"><summary>System prompt · ${esc(d.trace.llm.provider||"model")} · ${esc(d.trace.llm.prompt_source||"")} · ${(d.trace.llm.system_prompt||"").length} chars</summary><pre>${esc(d.trace.llm.system_prompt)}</pre></details>
           <details class="tr-more"><summary>What it was given</summary><pre>${esc(d.trace.llm.context||"")}</pre></details>
           <details class="tr-more"><summary>Raw model response</summary><pre>${esc(d.trace.llm.raw_response||"(none)")}</pre></details>`:''}
         </div>

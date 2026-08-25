@@ -1249,8 +1249,15 @@ _LEGAL_CONSENT = re.compile(
     r"arbitrat|terms (of|and)|conditions|privacy policy|legally bound|waive|binding|"
     r"consent to (the )?(processing|terms|agreement)|agree to (the )?(terms|arbitration|agreement)|"
     r"e-?sign|electronic signature", re.I)
-_SUCCESS = ["thank you", "application submitted", "received your application", "we received",
-            "your application has been", "successfully", "application complete"]
+# Phrases that mean an application was RECEIVED. Deliberately narrow: "successfully" alone
+# used to be in this list, and it appears in ordinary job-description prose — so a form that
+# had bounced on a validation error was reported as "Applied · confirmation page detected"
+# while the screenshot still showed the filled form and a red "Select a country".
+_SUCCESS = ["thank you for applying", "thanks for applying", "application submitted",
+            "application has been submitted", "received your application",
+            "we have received your application", "we've received your application",
+            "your application has been received", "application complete",
+            "successfully submitted", "submitted successfully", "application was sent"]
 
 def _find_submit(frame, page, pack):
     for sel in pack["submit"] + ["button:has-text('Submit application')", "button:has-text('Submit')",
@@ -1272,21 +1279,48 @@ def _errors(frame):
     except Exception:
         return []
 
-def _verify(page, frame):
-    """After a submit click: 'confirmed' (success text), 'sent' (form gone, no proof),
-    or 'stuck' (still on the form — the board bounced it for corrections)."""
+def _verify(page, frame, before=""):
+    """After a submit click: 'confirmed', 'sent', or 'stuck'.
+
+    Order matters. If the form is STILL ON SCREEN the application was not accepted, whatever
+    words the page contains — a job description is full of encouraging language, and matching
+    it produced a confident "Applied" for a form that had bounced on a validation error.
+    Confirmation text also has to be NEW: text that was already on the page before the click
+    proves nothing.
+    """
     try:
-        body = (page.inner_text("body") + " " + (frame.inner_text("body") if frame is not page else "")).lower()
+        body = (page.inner_text("body") + " " +
+                (frame.inner_text("body") if frame is not page else "")).lower()
     except Exception:
         body = ""
-    if any(t in body for t in _SUCCESS):
-        return "confirmed"
+
+    # 1. is the form still there?
     try:
         still = bool(frame.query_selector(_EMAIL_SEL))
     except Exception:
-        try: still = bool(page.query_selector(_EMAIL_SEL))
-        except Exception: still = False
-    return "stuck" if still else "sent"
+        try:
+            still = bool(page.query_selector(_EMAIL_SEL))
+        except Exception:
+            still = False
+    if still:
+        return "stuck"                     # never "confirmed" while the form is on screen
+
+    # 2. a submit button still present means we are on the same page too
+    try:
+        if page.query_selector("button:has-text('Submit application'), #submit_app"):
+            return "stuck"
+    except Exception:
+        pass
+
+    # 3. confirmation must be text that was NOT there before we clicked
+    fresh = body
+    if before:
+        prior = set(re.findall(r"[a-z ]{12,}", before.lower()))
+        for chunk in prior:
+            fresh = fresh.replace(chunk, " ")
+    if any(t in fresh for t in _SUCCESS):
+        return "confirmed"
+    return "sent"                          # form gone, no proof — honestly unconfirmed
 
 def _fix_invalid(frame):
     """After a validation bounce, tick benign required checkboxes the board flagged (leaving
@@ -1550,6 +1584,10 @@ def submit(job, answers, resume_html, standing=None, dry=True, headless=True, ti
             if not btn:
                 return {"ok": False, "status": "no_submit_button", "detail": "Couldn't find the submit button — apply manually.", **prepared}
             url_before = page.url
+            try:
+                _before_text = page.inner_text("body") or ""
+            except Exception:
+                _before_text = ""
             btn.click(); page.wait_for_timeout(4000)
             if _captcha_blocking(page):
                 return {"ok": False, "status": "captcha", "detail": "CAPTCHA appeared on submit — manual.", **prepared}
@@ -1567,7 +1605,7 @@ def submit(job, answers, resume_html, standing=None, dry=True, headless=True, ti
                         "detail": "Everything is filled — the board emailed you a verification "
                                   "code to prove you're human. Open the form and enter it to submit.",
                         **prepared}
-            v = _verify(page, frame)
+            v = _verify(page, frame, before=_before_text)
             if v == "confirmed":
                 return {"ok": True, "status": "submitted", "sent": True, "confirmed": True,
                         "confirm_url": page.url, "detail": "Submitted — confirmation page detected.", **prepared}

@@ -999,6 +999,30 @@ def test_episodic_memory_and_recall():
           (p.get("k") or {}).get("source") == "memory", str(p))
 
 
+def test_submission_is_only_confirmed_when_the_form_is_gone():
+    section("Confirmation · never claim applied while the form is still on screen")
+    import apply_browser as ab, os as _os
+    src = open(_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "apply_browser.py")).read()
+
+    # "successfully" appears in ordinary job-description prose. Matching it reported a form
+    # that had bounced on a validation error as "Applied — confirmation page detected", while
+    # the screenshot still showed the filled form and a red "Select a country".
+    check("bare 'successfully' is no longer a success phrase", "successfully" not in ab._SUCCESS)
+    for weak in ("thank you", "we received", "your application has been"):
+        check(f"the vague phrase {weak!r} is not on its own a confirmation", weak not in ab._SUCCESS)
+    for real in ("thank you for applying", "application submitted", "received your application"):
+        check(f"a real confirmation phrase is kept: {real!r}", real in ab._SUCCESS)
+
+    v = src.split("def _verify(", 1)[1].split("\ndef ", 1)[0]
+    check("the form-still-present check comes BEFORE any text matching",
+          v.index("return \"stuck\"") < v.index("_SUCCESS"))
+    check("a lingering submit button also counts as not submitted",
+          "Submit application')" in v and "#submit_app" in v)
+    check("confirmation text must be NEW since before the click", "before" in v and "fresh" in v)
+    check("the page text is captured before clicking submit", "_before_text = page.inner_text" in src)
+    check("and passed to the verifier", "_verify(page, frame, before=_before_text)" in src)
+
+
 def test_dead_feed_is_not_silent():
     section("Job sources · a DEAD feed must not masquerade as 'no openings'")
     import ats
@@ -1035,7 +1059,8 @@ def main():
               test_saved_answers_are_tidied_and_authoritative,
               test_prompt_and_execution_are_editable,
               test_answered_questions_are_never_withheld,
-              test_episodic_memory_and_recall):
+              test_episodic_memory_and_recall,
+              test_submission_is_only_confirmed_when_the_form_is_gone):
         try:
             t()
         except Exception as e:

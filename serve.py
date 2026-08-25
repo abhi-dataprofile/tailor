@@ -882,8 +882,10 @@ def orchestration(user):
                       "timeout": g("execution", "timeout", 45)},
         "model": {"provider": g("model", "provider", os.environ.get("LLM_PROVIDER", "auto")),
                   "model": g("model", "model", ""), "temp": g("model", "temp", 0.4)},
-        "prompts": {k: (pr.get(k) if (pr.get(k) or "").strip() else _prompts.DEFAULTS.get(k, ""))
-                    for k in ("understand", "summary", "bullets", "projects", "answer", "cover_letter")},
+        # every prompt that HAS a default is editable — a hardcoded list here silently dropped
+        # form_answer, so the Agent board saved it and the server threw it away
+        "prompts": {k: (pr.get(k) if (pr.get(k) or "").strip() else d)
+                    for k, d in _prompts.DEFAULTS.items()},
         "prompt_defaults": _prompts.DEFAULTS,
     }
 

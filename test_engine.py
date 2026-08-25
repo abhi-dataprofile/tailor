@@ -869,6 +869,14 @@ def test_prompt_and_execution_are_editable():
     check("the server passes the user's edited version",
           '_prompts.get(_cfg, "form_answer")' in srv)
     check("the Agent board offers it for editing", '["form_answer"' in dash)
+    # a hardcoded key list here silently dropped form_answer: the board saved it and the
+    # server threw it away, so editing appeared to do nothing
+    check("every prompt with a default is saveable — no hardcoded key list",
+          "for k, d in _prompts.DEFAULTS.items()" in srv and
+          'for k in ("understand", "summary"' not in srv)
+    # the editor showed an EMPTY box for an unset prompt, so the rules could not be read
+    check("the editor is prefilled with the active prompt", 'esc(cur[k]||def[k]||"")' in dash)
+    check("an unset prompt reads as default, not customized", "!cur[k] || cur[k]===def[k]" in dash)
     # the execution knobs were already there — make sure they stay
     for knob in ("execution.retries", "execution.timeout", "execution.claim_ttl",
                  "execution.domain_gap", "execution.headed", "modes.daily_cap", "model.provider"):

@@ -929,8 +929,10 @@ function fillOrch(c){
 function renderPrompts(c){
   const def=c.prompt_defaults||{},cur=c.prompts||{};
   $("agPrompts").innerHTML=AG_PROMPTS.map(([k,label])=>{
-    const isDef=(cur[k]||"")===(def[k]||"");
-    return `<div class="agp-item"><div class="agp-head" onclick="agpToggle('${k}')"><b>${esc(label)}</b><span class="rt">${isDef?"default":"customized"} · ${k}</span></div><div class="agp-body" id="agp-${k}" style="display:none"><textarea data-p="${k}">${esc(cur[k]||"")}</textarea><button class="agp-reset" onclick="agpReset('${k}')">Reset to default</button></div></div>`;
+    // an unset prompt IS the default — comparing "" against the default text marked every
+    // newly-added prompt as "customized" before anyone had touched it
+    const isDef=!cur[k] || cur[k]===def[k];
+    return `<div class="agp-item"><div class="agp-head" onclick="agpToggle('${k}')"><b>${esc(label)}</b><span class="rt">${isDef?"default":"customized"} · ${k}</span></div><div class="agp-body" id="agp-${k}" style="display:none"><textarea data-p="${k}">${esc(cur[k]||def[k]||"")}</textarea><button class="agp-reset" onclick="agpReset('${k}')">Reset to default</button></div></div>`;
   }).join("");
 }
 function agpToggle(k){const b=$("agp-"+k);if(b)b.style.display=b.style.display==="none"?"block":"none";}

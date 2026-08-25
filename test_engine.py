@@ -511,8 +511,13 @@ def test_nav_is_identical_everywhere():
     for name, src in (("index.html", idx), ("dashboard.html", dash)):
         check(f"{name}: the shell width is defined once as --shell",
               "--shell:min(1700px,96vw)" in src)
-        stray = _re.findall(r"max-width:(?:8[2-9]\d|9\d\d|1[01]\d\d)px;margin:0 auto", src)
-        check(f"{name}: no view uses its own hard-coded shell width", not stray, str(stray[:3]))
+        # deliberately narrow, focused surfaces are exempt: onboarding is a single-task flow
+        # and the résumé is a document — neither should stretch to a 1700px shell.
+        NARROW_OK = ("ob-wrap", "resume")
+        stray = [m for m in _re.finditer(r"max-width:(?:8[2-9]\d|9\d\d|1[01]\d\d)px;margin:0 auto", src)
+                 if not any(k in src[max(0, m.start() - 90):m.start()] for k in NARROW_OK)]
+        check(f"{name}: no navigable view uses its own hard-coded shell width",
+              not stray, str([src[m.start():m.end()] for m in stray[:3]]))
 
     # I broke both pages twice by appending before the FIRST </body>, which lives inside a JS
     # string literal ("<html><body>…</body></html>"). Scripts must go before the LAST one.

@@ -338,7 +338,7 @@ def test_answers_can_be_saved_and_reused():
     srv = open(_os.path.join(root, "serve.py")).read()
     dash = open(_os.path.join(root, "dashboard.html")).read()
     check("an /api/answers endpoint exists", '"/api/answers"' in srv)
-    blk = srv.split('"/api/answers"', 1)[1][:2200]
+    blk = srv.split('"/api/answers"', 1)[1][:3200]
     check("answers MERGE into standing (never replace the profile)", "standing[\"_custom\"] = custom" in blk)
     check("writes with upsert, so a missing profile row isn't a silent no-op",
           "sb.upsert(\"profiles\"" in blk)
@@ -483,8 +483,9 @@ def test_nav_is_identical_everywhere():
         m = _re.search(r"const NAV_ITEMS = \[(.*?)\];", src, _re.S)
         return _re.findall(r'label:"([^"]+)"', m.group(1)) if m else []
     a, b = items(idx), items(dash)
-    check("both pages define the same nav", a == b and len(a) == 7, f"{a} vs {b}")
-    check("Review queue and Agent are both present", {"Review queue", "Agent"} <= set(a), str(a))
+    check("both pages define the same nav", a == b and len(a) >= 7, f"{a} vs {b}")
+    check("Review queue, Agent and Answer bank are all present",
+          {"Review queue", "Agent", "Answer bank"} <= set(a), str(a))
     # every nav element must be EMPTY in markup — filled by the renderer, never hand-written,
     # which is how three copies drifted apart in the first place
     for name, src in (("index.html", idx), ("dashboard.html", dash)):
@@ -704,6 +705,43 @@ def test_hosted_model_and_saved_answers_are_actually_used():
     check("derived facts are added too", "_apply._enrich_standing(_p, _standing)" in srv)
 
 
+def test_answer_bank_questionnaire():
+    section("Answer bank · fill once, reused on every board")
+    import apply_browser as ab, os as _os
+    root = _os.path.dirname(_os.path.abspath(__file__))
+    dash = open(_os.path.join(root, "dashboard.html")).read()
+    srv = open(_os.path.join(root, "serve.py")).read()
+
+    check("a fill-once questionnaire exists", 'id="qbModal"' in dash and "openAnswerBank" in dash)
+    check("it is reachable from the nav on both pages",
+          'label:"Answer bank"' in dash and
+          'label:"Answer bank"' in open(_os.path.join(root, "index.html")).read())
+    check("it prefills from what is already saved", '/api/profile' in dash.split("openAnswerBank", 1)[1][:900])
+    check("it saves as STRUCTURED keys, so answers match by meaning",
+          'keys:true' in dash and 'structured = bool(body.get("keys"))' in srv)
+
+    # one saved answer must cover every rewording a board uses — this is the whole point
+    bank = {"currently_working": "Yes", "notice_period": "2 weeks",
+            "reason_for_change": "Seeking a full-time AI role", "current_compensation": "Not disclosed",
+            "salary_expectation": "Market rate", "shift_ok": "Yes", "remote_ok": "Yes",
+            "desired_location": "New York, NY", "years_experience": "4"}
+    cases = [
+        ("Are you currently working?", "Yes"),
+        ("What is your official notice period?", "2 weeks"),
+        ("How soon you can join us?", "2 weeks"),
+        ("What is the reason for job change?", "Seeking a full-time AI role"),
+        ("What is your Current CTC (Fixed and Var)?", "Not disclosed"),
+        ("What is your expected CTC?", "Market rate"),
+        ("Are you ready to work in EMEA shift timings?", "Yes"),
+        ("Are you ready to work in Hybrid Mode, 3 days WFO?", "Yes"),
+        ("What is your preferred location?", "New York, NY"),
+        ("How many years of experience do you have in overall?", "4"),
+    ]
+    for q, want in cases:
+        got = ab._answer_for(q, bank)
+        check(f"answers: {q[:46]}", got == want, f"got {got!r}, wanted {want!r}")
+
+
 def test_dead_feed_is_not_silent():
     section("Job sources · a DEAD feed must not masquerade as 'no openings'")
     import ats
@@ -734,7 +772,8 @@ def main():
               test_answers_can_be_saved_and_reused, test_navigates_to_the_real_form,
               test_board_agents_plan_then_fill, test_nav_is_identical_everywhere, test_activity_actions_actually_work, test_decision_trace_is_recorded,
               test_option_matching_is_precise,
-              test_hosted_model_and_saved_answers_are_actually_used):
+              test_hosted_model_and_saved_answers_are_actually_used,
+              test_answer_bank_questionnaire):
         try:
             t()
         except Exception as e:

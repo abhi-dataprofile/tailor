@@ -1219,8 +1219,14 @@ class H(SimpleHTTPRequestHandler):
                 data = prof.get("data") or {}
                 standing = dict(data.get("standing") or {})
                 custom = dict(standing.get("_custom") or {})
+                structured = bool(body.get("keys"))
                 for q, v in answers.items():
                     v = str(v).strip()
+                    if structured:
+                        # from the answer-bank questionnaire: these ARE standing keys, so they
+                        # match by meaning on any board rather than by exact question text
+                        standing[q] = v
+                        continue
                     key = _STANDING_KEY.get(q.strip().lower())
                     if key:                      # a known field (phone, start date…) → a real key
                         standing[key] = v

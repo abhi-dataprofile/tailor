@@ -198,6 +198,11 @@ a{color:var(--primary-tint)}
 .dtab .opts{color:var(--ink-soft);font-size:10.5px;margin-top:3px}
 .dtab .srcpill{background:rgba(0,0,0,.06);border-radius:5px;padding:2px 6px;font-size:11px}
 .dtab .whycell{color:var(--ink-soft);max-width:340px}
+.qb-group{margin:0 0 18px}
+.qb-group h4{margin:0 0 8px;font:600 13px "Inter",system-ui;color:var(--ink-soft)}
+.qb-row{display:grid;grid-template-columns:1fr 260px;gap:14px;align-items:center;margin:0 0 8px}
+.qb-row span{font-size:13px}
+@media(max-width:640px){.qb-row{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -1031,6 +1036,7 @@ const NAV_ITEMS = [
   {id:"find",    label:"Find jobs"},
   {id:"wb",      label:"Workbench"},
   {id:"profile", label:"Profile"},
+  {id:"answers", label:"Answer bank"},
   {id:"review",  label:"Review queue", badge:"rqNav"},
   {id:"agent",   label:"Agent"},
   {id:"net",     label:"Networking"},
@@ -1047,6 +1053,7 @@ function renderNav(active){
 }
 
 function navGo(id){
+  if(id==="answers")return openAnswerBank();
   if(id==="wb")     return location.href="index.html";
   if(id==="find")   return location.href="index.html?find=1";
   if(id==="profile")return location.href="index.html?profile=1";
@@ -1058,5 +1065,93 @@ function navGo(id){
 window.renderNav=renderNav;window.navGo=navGo;
 renderNav("dash");
 </script>
+
+<!-- ── Answer bank: fill once, reused on every application ────────────────────── -->
+<div id="qbModal" class="modal" style="display:none" onclick="if(event.target===this)closeAnswerBank()">
+  <div class="modal-card" style="max-width:760px">
+    <h3 style="margin:0 0 4px">Your answer bank</h3>
+    <p class="sub" style="margin:0 0 16px">Answer these once. Every application reuses them — including
+      reworded versions of the same question on other boards. Blank is fine; the agent will just ask later.</p>
+    <div id="qbBody"><div class="qb-group"><h4>Contact & links</h4>
+<label class="qb-row"><span>Phone number</span><input class="in" data-q="phone" type="text" placeholder="+1 555 010 2020"></label>
+<label class="qb-row"><span>Current location (city, state)</span><input class="in" data-q="current_location" type="text" placeholder="San Jose, CA"></label>
+<label class="qb-row"><span>Country</span><input class="in" data-q="country" type="text" placeholder="United States"></label>
+<label class="qb-row"><span>LinkedIn profile URL</span><input class="in" data-q="linkedin" type="text" placeholder="https://linkedin.com/in/you"></label>
+<label class="qb-row"><span>GitHub URL</span><input class="in" data-q="github" type="text" placeholder=""></label>
+<label class="qb-row"><span>Portfolio / personal site</span><input class="in" data-q="portfolio" type="text" placeholder=""></label>
+</div>
+<div class="qb-group"><h4>Work authorisation — only your own words are ever used</h4>
+<label class="qb-row"><span>Are you legally authorised to work in the country of this role?</span><select class="in" data-q="work_authorized"><option value="">— choose —</option><option>Yes</option><option>No</option></select></label>
+<label class="qb-row"><span>Will you now or in future require visa sponsorship?</span><select class="in" data-q="needs_sponsorship"><option value="">— choose —</option><option>Yes</option><option>No</option></select></label>
+<label class="qb-row"><span>Your current visa / work-permit status</span><input class="in" data-q="visa_type" type="text" placeholder="F-1 OPT"></label>
+<label class="qb-row"><span>Country of citizenship</span><input class="in" data-q="citizenship" type="text" placeholder=""></label>
+</div>
+<div class="qb-group"><h4>Your current situation</h4>
+<label class="qb-row"><span>Are you currently working?</span><select class="in" data-q="currently_working"><option value="">— choose —</option><option>Yes</option><option>No</option></select></label>
+<label class="qb-row"><span>Current or most recent employer</span><input class="in" data-q="current_company" type="text" placeholder=""></label>
+<label class="qb-row"><span>Current or most recent job title</span><input class="in" data-q="current_title" type="text" placeholder=""></label>
+<label class="qb-row"><span>Total years of professional experience</span><input class="in" data-q="years_experience" type="text" placeholder="4"></label>
+<label class="qb-row"><span>Earliest date you can start</span><input class="in" data-q="start_date" type="date" placeholder=""></label>
+<label class="qb-row"><span>Your notice period</span><input class="in" data-q="notice_period" type="text" placeholder="2 weeks"></label>
+<label class="qb-row"><span>Reason for looking for a new role</span><textarea class="in" data-q="reason_for_change" rows="2" placeholder=""></textarea></label>
+</div>
+<div class="qb-group"><h4>What you're looking for</h4>
+<label class="qb-row"><span>Preferred work location</span><input class="in" data-q="desired_location" type="text" placeholder=""></label>
+<label class="qb-row"><span>Willing to relocate?</span><select class="in" data-q="relocate"><option value="">— choose —</option><option>Yes</option><option>No</option></select></label>
+<label class="qb-row"><span>Comfortable working onsite / hybrid as the role requires?</span><select class="in" data-q="remote_ok"><option value="">— choose —</option><option>Yes</option><option>No</option></select></label>
+<label class="qb-row"><span>Able to work the shift timings this role requires (incl. EMEA/US overlap)?</span><select class="in" data-q="shift_ok"><option value="">— choose —</option><option>Yes</option><option>No</option></select></label>
+<label class="qb-row"><span>How did you hear about the role?</span><input class="in" data-q="how_heard" type="text" placeholder="Company website"></label>
+</div>
+<div class="qb-group"><h4>Compensation — never answered for you</h4>
+<label class="qb-row"><span>Current total compensation</span><input class="in" data-q="current_compensation" type="text" placeholder=""></label>
+<label class="qb-row"><span>Expected total compensation</span><input class="in" data-q="salary_expectation" type="text" placeholder=""></label>
+</div>
+<div class="qb-group"><h4>Demographics — optional, never answered for you</h4>
+<label class="qb-row"><span>Gender</span><input class="in" data-q="gender" type="text" placeholder="Prefer not to say"></label>
+<label class="qb-row"><span>Race / ethnicity</span><input class="in" data-q="ethnicity" type="text" placeholder="Prefer not to say"></label>
+<label class="qb-row"><span>Veteran status</span><input class="in" data-q="veteran_status" type="text" placeholder="I am not a protected veteran"></label>
+<label class="qb-row"><span>Disability status</span><input class="in" data-q="disability_status" type="text" placeholder="I do not wish to answer"></label>
+</div>
+</div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:18px;position:sticky;bottom:0;
+                background:#fff;padding-top:12px;border-top:1px solid var(--line)">
+      <button class="btn" onclick="closeAnswerBank()">Close</button>
+      <button class="btn accent" id="qbSave" onclick="saveAnswerBank()">Save answers</button>
+    </div>
+  </div>
+</div>
+<script>
+/* Fill-once questionnaire. Writes to the SAME store as "Add answers"
+   (profiles.data.standing), so an answer given here is matched by meaning on any board —
+   a `phone` fact answers "Phone", "Mobile number" and "Contact number" alike. */
+async function openAnswerBank(){
+  document.getElementById("qbModal").style.display="flex";
+  try{
+    const p = await fetch("/api/profile",{headers:authHeaders()}).then(r=>r.json());
+    const st = ((p&&p.profile&&p.profile.data)||{}).standing || {};
+    document.querySelectorAll("#qbBody [data-q]").forEach(el=>{
+      const v = st[el.dataset.q]; if(v!=null && v!=="") el.value = v;
+    });
+  }catch(e){}
+}
+function closeAnswerBank(){document.getElementById("qbModal").style.display="none";}
+async function saveAnswerBank(){
+  const answers={};
+  document.querySelectorAll("#qbBody [data-q]").forEach(el=>{
+    if((el.value||"").trim()) answers[el.dataset.q]=el.value.trim();
+  });
+  if(!Object.keys(answers).length){toast("Nothing filled in yet");return;}
+  const b=document.getElementById("qbSave"); b.disabled=true; b.textContent="Saving…";
+  try{
+    const r=await fetch("/api/answers",{method:"POST",headers:{"Content-Type":"application/json",...authHeaders()},
+      body:JSON.stringify({answers, keys:true})}).then(x=>x.json());
+    toast(r.ok?`Saved ${r.saved} answers — reused on every application`:(r.detail||"Couldn't save"));
+    if(r.ok)closeAnswerBank();
+  }catch(e){toast("Couldn't save — "+e.message);}
+  b.disabled=false; b.textContent="Save answers";
+}
+window.openAnswerBank=openAnswerBank;window.closeAnswerBank=closeAnswerBank;window.saveAnswerBank=saveAnswerBank;
+</script>
+
 </body>
 </html>

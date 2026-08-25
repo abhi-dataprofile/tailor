@@ -4218,6 +4218,7 @@ const NAV_ITEMS = [
   {id:"find",    label:"Find jobs"},
   {id:"wb",      label:"Workbench"},
   {id:"profile", label:"Profile"},
+  {id:"answers", label:"Answer bank"},
   {id:"review",  label:"Review queue", badge:"rqNav"},
   {id:"agent",   label:"Agent"},
   {id:"net",     label:"Networking"},
@@ -4234,6 +4235,7 @@ function renderNav(active){
 }
 
 function navGo(id){
+  if(id==="answers")return location.href="dashboard.html#answers";
   /* Full-screen views (Review queue, Find, System) sit above the page, so a nav click has to
      dismiss whatever is open — otherwise the click looks like it did nothing. */
   ["closeReviewQueue","closeSystem","closeSettings"].forEach(fn=>{

@@ -716,7 +716,9 @@ def test_answer_bank_questionnaire():
     check("it is reachable from the nav on both pages",
           'label:"Answer bank"' in dash and
           'label:"Answer bank"' in open(_os.path.join(root, "index.html")).read())
-    check("it prefills from what is already saved", '/api/profile' in dash.split("openAnswerBank", 1)[1][:900])
+    # look at the FUNCTION body, not the first mention (which is the nav handler)
+    fn = dash.split("async function openAnswerBank", 1)[1][:900] if "async function openAnswerBank" in dash else ""
+    check("it prefills from what is already saved", "/api/profile" in fn and "standing" in fn)
     check("it saves as STRUCTURED keys, so answers match by meaning",
           'keys:true' in dash and 'structured = bool(body.get("keys"))' in srv)
 

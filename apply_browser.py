@@ -437,6 +437,10 @@ ANSWER_KEYS = [
                 "in-office","come into the office","work remotely"]),
  ("desired_location", ["preferred location","preferred work location","location preference"]),
  ("school", ["school","university","college","institution attended","most recent school"]),
+ ("degree", ["degree","highest degree","level of education","education level","qualification"]),
+ ("discipline", ["discipline","field of study","major","area of study","course of study"]),
+ ("grad_year", ["end date year","graduation year","year of graduation","completion year",
+                "year completed","expected graduation"]),
  # residence COUNTRY — kept last so specific country phrasings (citizenship, "countries you
  # anticipate") match their own keys first; a bare "Country" field falls through to here.
  ("country", ["country where you","country you reside","country of residence","currently reside","which country","select the country","your country","country"]),

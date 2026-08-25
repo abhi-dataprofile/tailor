@@ -140,7 +140,15 @@ def _enrich_standing(profile, standing):
     sd("current_title", profile.get("title") or data.get("title"))
     edu = data.get("education") or profile.get("education") or []
     if edu:
-        sd("school", (edu[0] or {}).get("school"))
+        e0 = edu[0] or {}
+        sd("school", e0.get("school"))
+        sd("degree", e0.get("degree"))
+        sd("discipline", e0.get("field") or e0.get("major") or e0.get("discipline"))
+        # "2024–2026" → the finishing year, which is what these fields ask for
+        m = re.findall(r"(19|20)\d{2}", str(e0.get("dates") or ""))
+        if m:
+            yrs = re.findall(r"(?:19|20)\d{2}", str(e0.get("dates") or ""))
+            sd("grad_year", yrs[-1])
     exp = data.get("exp") or profile.get("experience") or []
     if exp:
         sd("current_company", (exp[0] or {}).get("company"))

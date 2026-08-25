@@ -943,6 +943,21 @@ def test_answered_questions_are_never_withheld():
     full = {"preferred_language": "English", "over_18": "Yes", "commuting_distance": "Yes",
             "certifications": "AWS Certified", "referred_by": "N/A",
             "relatives_at_company": "N/A", "worked_here_before": "No"}
+    # Degree / Discipline / graduation year appear on nearly every Greenhouse form
+    edu = {"degree": "Master's Degree", "discipline": "Computer Science", "grad_year": "2026",
+           "certifications": "None"}
+    for q, want in (("Degree", "Master's Degree"), ("Discipline", "Computer Science"),
+                    ("End date year", "2026"),
+                    ("Do you hold any certifications that are applicable to this role?", "None")):
+        check(f"answers: {q[:40]}", ab._answer_for(q, edu) == want, str(ab._answer_for(q, edu)))
+    # and they are derived from the profile's education even before the bank is filled
+    import apply as _apply
+    got = _apply._enrich_standing(
+        {"data": {"education": [{"school": "SUNY Buffalo", "degree": "Master's Degree",
+                                 "field": "Computer Science", "dates": "2024-2026"}]}}, {})
+    for k, v in (("degree", "Master's Degree"), ("discipline", "Computer Science"), ("grad_year", "2026")):
+        check(f"derived from education: {k}", got.get(k) == v, str(got.get(k)))
+
     for q, want in (("What is your preferred language?", "English"),
                     ("Are you local and within commuting distance to this job?", "Yes"),
                     ("Please list any additional education, training or certifications relevant to the job (ie. OSHA, TWIC, etc.).", "AWS Certified"),

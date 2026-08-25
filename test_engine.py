@@ -500,6 +500,14 @@ def test_nav_is_identical_everywhere():
           "flex:0 1 auto" in dash.split(".top-right{", 1)[1][:160])
     check("informational pills hide before the nav is allowed to suffer",
           "#planStat,#srcStat{display:none" in dash)
+    # truncating "free plan" to "free pla" is worse than not showing it at all
+    check("status pills are never clipped mid-word",
+          "text-overflow:ellipsis" not in dash.split(".top-right .stat{", 1)[1][:120] and
+          "text-overflow:ellipsis" not in idx.split(".top-actions .mstat{", 1)[1][:120])
+    # a fixed 1180px shell left ~700px of empty margin on a wide display
+    for name, src in (("index.html", idx), ("dashboard.html", dash)):
+        check(f"{name}: the shell uses the screen instead of a fixed narrow column",
+              "min(1700px, 96vw)" in src)
 
     # I broke both pages twice by appending before the FIRST </body>, which lives inside a JS
     # string literal ("<html><body>…</body></html>"). Scripts must go before the LAST one.

@@ -825,6 +825,36 @@ def test_banded_and_combo_options():
     check("the UI flags an answer the form refused", "not accepted" in dash)
 
 
+def test_saved_answers_are_tidied_and_authoritative():
+    section("Filling · tidy values, authoritative identity, honest verification state")
+    import apply_browser as ab, os as _os
+    root = _os.path.dirname(_os.path.abspath(__file__))
+    srv = open(_os.path.join(root, "serve.py")).read()
+    src = open(_os.path.join(root, "apply_browser.py")).read()
+
+    # "Buffalo , New York" is not a place any autocomplete recognises, so the field stayed
+    # empty and the form bounced with "Please enter your location"
+    for raw, want in (("Buffalo , New York", "Buffalo, New York"),
+                      ("  San  Jose ,CA ", "San Jose, CA"),
+                      ("New York,NY", "New York, NY"),
+                      ("Buffalo, New York", "Buffalo, New York")):
+        check(f"tidied: {raw!r}", ab._tidy(raw) == want, ab._tidy(raw))
+    check("the tidied value is what gets typed into a combobox",
+          "v = _tidy(value)" in src)
+
+    # a board that emails a one-time code is not "unanswered questions"
+    check("an emailed verification code is its own state", '"status": "needs_code"' in src)
+    check("it says the form is filled and waiting on the code",
+          "emailed you a verification" in src)
+    import app_status
+    check("it classifies as needs_you, never as sent",
+          app_status.classify({"status": "needs_code"}) == "needs_you")
+
+    # the browser's cached identity kept overriding a corrected profile
+    check("the saved profile overrides the browser's cached identity",
+          '_answers["email"] = _p["email"]' in srv)
+
+
 def test_dead_feed_is_not_silent():
     section("Job sources · a DEAD feed must not masquerade as 'no openings'")
     import ats
@@ -857,7 +887,8 @@ def main():
               test_option_matching_is_precise,
               test_hosted_model_and_saved_answers_are_actually_used,
               test_answer_bank_questionnaire, test_never_claims_experience_you_dont_have,
-              test_answers_by_index, test_banded_and_combo_options):
+              test_answers_by_index, test_banded_and_combo_options,
+              test_saved_answers_are_tidied_and_authoritative):
         try:
             t()
         except Exception as e:

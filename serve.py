@@ -1399,6 +1399,7 @@ class H(SimpleHTTPRequestHandler):
             # empty localStorage sent {}, so every answer the candidate had saved was invisible
             # to the agent and the trace read "Answered from your profile: —".
             _standing = dict(body.get("standing") or {})
+            _p = {}
             try:
                 _p = (sb.select("profiles", {"user_id": f"eq.{user}", "select": "data,title,email,contact",
                                              "limit": "1"}) or [{}])[0]
@@ -1411,6 +1412,19 @@ class H(SimpleHTTPRequestHandler):
                 _standing = _apply._enrich_standing(_p, _standing)   # + city/country/school/title
             except Exception as e:
                 print("[apply] couldn't load the saved answer bank:", str(e)[:120])
+            # The browser sends whatever it cached; the DATABASE profile is authoritative. A
+            # stale "abhicjadhav @gmail.com" kept being typed into forms long after the saved
+            # profile had been corrected.
+            _answers = dict(body.get("answers") or {})
+            try:
+                if _p.get("email"):
+                    _answers["email"] = _p["email"]
+                if _p.get("name") and not _answers.get("first_name"):
+                    _n = str(_p["name"]).split()
+                    _answers["first_name"] = _n[0] if _n else ""
+                    _answers["last_name"] = " ".join(_n[1:])
+            except Exception:
+                pass
             _jobmeta = {"url": apply_url, "title": body.get("label", ""), "id": body.get("job_id")}
             try:
                 if jr:
@@ -1419,7 +1433,7 @@ class H(SimpleHTTPRequestHandler):
             except Exception:
                 pass
             payload = json.dumps({"job": _jobmeta,
-                                  "answers": body.get("answers", {}) or {},
+                                  "answers": _answers,
                                   "standing": _standing,
                                   "resume_html": _resume, "dry": not bool(body.get("live"))})
             try:

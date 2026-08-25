@@ -284,6 +284,14 @@ def _pw():
 
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[A-Za-z]{2,}$")
 
+def _tidy(v):
+    """Normalise a saved answer before it is typed: collapse runs of whitespace and remove the
+    space before a comma. "Buffalo , New York" is not a place any autocomplete recognises, so
+    the field silently stayed empty and the form bounced with "Please enter your location"."""
+    v = re.sub(r"\s+", " ", str(v or "")).strip()
+    v = re.sub(r"\s+([,.])", r"\1", v)
+    return re.sub(r"([,.])(?=\S)", r"\1 ", v)
+
 def _clean_contact(kind, value):
     """Normalise a contact value, and refuse to type one that is plainly invalid.
 
@@ -955,7 +963,7 @@ def _visible_options(page):
 def _fill_combobox(page, el, value):
     """Type into a typeahead and select the best-matching option from its popup listbox.
     Filling the value directly wouldn't register the selection in a React combobox."""
-    v = str(value).strip()
+    v = _tidy(value)
     if not v:
         return False
     # FIRST look at what the control actually offers. Many "combos" are really selects with a
@@ -1535,6 +1543,19 @@ def submit(job, answers, resume_html, standing=None, dry=True, headless=True, ti
             if _captcha_blocking(page):
                 return {"ok": False, "status": "captcha", "detail": "CAPTCHA appeared on submit — manual.", **prepared}
             page.screenshot(path=shot, full_page=True)
+            try:
+                _txt = (page.inner_text("body") or "")
+            except Exception:
+                _txt = ""
+            if re.search(r"verification code|security code|enter the \d+[- ]character code|"
+                         r"code was sent to", _txt, re.I):
+                # The board emailed a one-time code to prove a human is applying. Everything is
+                # filled and the form is waiting on that code — say so, rather than reporting it
+                # as unanswered questions, which sends you hunting for a field that isn't there.
+                return {"ok": False, "status": "needs_code", "sent": False,
+                        "detail": "Everything is filled — the board emailed you a verification "
+                                  "code to prove you're human. Open the form and enter it to submit.",
+                        **prepared}
             v = _verify(page, frame)
             if v == "confirmed":
                 return {"ok": True, "status": "submitted", "sent": True, "confirmed": True,

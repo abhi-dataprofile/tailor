@@ -53,6 +53,8 @@ def classify(res):
         return "submitted_unconfirmed"
     if raw == "captcha":
         return "blocked_captcha"
+    if raw == "needs_code":
+        return "needs_you"          # filled and waiting on an emailed verification code
     if raw in ("needs_review", "needs_answers", "form_not_ready"):
         return "needs_you"        # we never reached a usable form → a human should look
     if raw in ("unsupported", "unsupported_form", "no_submit_button", "blocked"):

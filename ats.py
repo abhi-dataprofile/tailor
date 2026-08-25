@@ -18,8 +18,9 @@ PRIORITY = {
         "databricks","airbnb","coinbase","robinhood","instacart","doordash","reddit","discord","dropbox",
         "cloudflare","gitlab","hashicorp","asana","benchling","gusto","retool","samsara","affirm","chime",
         "sofi","twilio","okta","elastic","mongodb","zapier","webflow","calendly","grammarly","duolingo"],
-    "lever": ["openai","anthropic","figma","databricks","plaid","reddit","gitlab","benchling","retool",
-        "affirm","confluent","canva","duolingo","cohere","sourcegraph"],
+    # NOTE: verified live 2026-08-24. The previous list (openai/figma/plaid/…) had migrated off
+    # Lever and every slug 404'd, so this source silently produced zero jobs. Re-verify before adding.
+    "lever": ["spotify","palantir","veeva","binance","matchgroup","gopuff","pattern","zopa","tala"],
     "ashby": ["openai","notion","ramp","linear","plaid","reddit","snowflake","benchling","confluent",
         "zapier","deel","pinecone","weaviate","cohere","runway","perplexity","harvey","cursor","replit"],
     "smartrecruiters": ["Equinox","PublicStorage","Accor","Experian","Wise","WesternDigital","Colliers","Visa","WeWork","Wayfair","ASOS"],
@@ -243,18 +244,27 @@ def _recruitee(slug, timeout):
 _FETCHERS = {"greenhouse": _greenhouse, "lever": _lever, "ashby": _ashby,
              "smartrecruiters": _smartrecruiters, "recruitee": _recruitee}
 
-def fetch_feed(vendor, slug, timeout=30, since=None):
-    """Return normalized postings for one company. Never raises — returns [].
+def fetch_feed(vendor, slug, timeout=30, since=None, strict=False):
+    """Return normalized postings for one company. Returns [] on error by default.
+
+    `strict=True` re-raises instead — the crawler uses it so a DEAD feed (renamed/removed
+    company, 404) is distinguishable from a live company with no openings. Swallowing that
+    difference is how the whole Lever source sat broken and silent: every slug 404'd, each
+    crawl looked like a clean "0 openings", fail_count never rose, nothing auto-disabled.
 
     `since` (ISO timestamp) enables incremental fetch: only postings whose
     updated_at is newer than `since` are returned. Postings with no updated_at
     are always included (can't prove they're unchanged)."""
     fn = _FETCHERS.get(vendor)
     if not fn:
+        if strict:
+            raise ValueError(f"unknown vendor {vendor!r}")
         return []
     try:
         out = [d for d in fn(slug, timeout) if d["url"] and d["external_id"] != "None"]
     except Exception:
+        if strict:
+            raise
         return []
     if since:
         out = [d for d in out if not d.get("updated_at") or d["updated_at"] >= since]

@@ -67,8 +67,10 @@ def due_companies(limit):
 def crawl_company(c):
     """Fetch one company's feed (incrementally — only postings changed since we last crawled)."""
     try:
-        # fetch the full feed to catch brand-new postings; `since` trims re-processing of unchanged ones
-        jobs = ats.fetch_feed(c["vendor"], c["slug"])
+        # fetch the full feed to catch brand-new postings; `since` trims re-processing of unchanged ones.
+        # strict=True so a dead/renamed feed counts as an ERROR (→ fail_count → auto-disable) instead
+        # of masquerading as a company with no openings.
+        jobs = ats.fetch_feed(c["vendor"], c["slug"], strict=True)
         return (c, jobs, True, "ok")
     except Exception as e:
         return (c, [], False, "error:" + str(e)[:120])
@@ -110,6 +112,22 @@ def persist(company, jobs, ok, detail):
         sb.update("companies", {"id": f"eq.{company['id']}"},
                   {"fail_count": fc, "active": fc < MAX_FAILS})
     return new_count, len(jobs)
+
+def _bump(backoff):
+    """Next self-throttle delay: double, starting at SLEEP, capped at BACKOFF_MAX."""
+    return min(BACKOFF_MAX, (backoff or SLEEP) * 2)
+
+def _cycle_delay(seen, err, backoff):
+    """How long to wait after a cycle, and the new backoff state. Pure → unit-testable.
+
+    A cycle that saw NO postings but errored across (most of) the batch means the DB or the
+    feeds are struggling: back off exponentially instead of pounding them every SLEEP seconds
+    (that pounding is what tipped the free tier over). Any cycle that actually saw data clears
+    the backoff — partial errors are normal and must NOT throttle a healthy crawl."""
+    if seen == 0 and err and err >= max(1, BATCH // 2):
+        nb = _bump(backoff)
+        return nb, nb
+    return (SLEEP if seen else max(SLEEP, 120)), 0
 
 def run_cycle():
     companies = due_companies(BATCH)
@@ -192,19 +210,14 @@ def main():
         try:
             n, seen, err = run_cycle()
             ts = _now().strftime("%H:%M:%S")
-            # A cycle that's ALL errors means the DB/feeds are struggling — self-throttle instead
-            # of pounding it every SLEEP seconds (this is what tipped the free tier over before).
-            if seen == 0 and err and err >= max(1, BATCH // 2):
-                backoff = min(BACKOFF_MAX, (backoff or SLEEP) * 2)
-                print(f"[{ts}] new={n} seen={seen} errors={err} — backing off {backoff}s")
-                time.sleep(backoff); continue
-            backoff = 0
-            print(f"[{ts}] new={n} seen={seen} errors={err}")
-            time.sleep(SLEEP if seen else max(SLEEP, 120))  # idle longer when everything's fresh
+            delay, backoff = _cycle_delay(seen, err, backoff)
+            note = f" — backing off {delay}s" if backoff else ""
+            print(f"[{ts}] new={n} seen={seen} errors={err}{note}")
+            time.sleep(delay)
         except KeyboardInterrupt:
             print("\n[worker] stopped."); return
         except Exception as e:
-            backoff = min(BACKOFF_MAX, (backoff or SLEEP) * 2)
+            backoff = _bump(backoff)
             print("[worker] cycle error:", str(e)[:160], f"— backing off {backoff}s"); time.sleep(backoff)
 
 if __name__ == "__main__":

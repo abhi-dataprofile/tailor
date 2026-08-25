@@ -12,9 +12,10 @@ browser backend is called with dry=True. No rows are written (we call the stages
 directly, not apply_one), so it's safe to run against a live or a down DB — DB-only
 stages just report SKIP when Supabase isn't reachable.
 
-    python3 smoke_apply.py                # headless, auto-pick a company with openings
-    APPLY_HEADED=1 python3 smoke_apply.py # watch the browser fill the form
-    python3 smoke_apply.py stripe         # force a specific Greenhouse company slug
+    python3 smoke_apply.py                    # headless, auto-pick a company with openings
+    APPLY_HEADED=1 python3 smoke_apply.py     # watch the browser fill the form
+    python3 smoke_apply.py stripe             # force a specific Greenhouse company slug
+    python3 smoke_apply.py --vendor ashby     # test another ATS (lever/ashby/smartrecruiters/recruitee)
 """
 import os, sys, time, json
 
@@ -28,10 +29,14 @@ import ats
 import serve
 import apply as engine
 
-# Candidate Greenhouse companies to try in order until one has an open req.
-CANDIDATES = sys.argv[1:] or [
-    "stripe", "ramp", "brex", "notion", "figma", "vercel", "datadog", "openai", "anthropic",
-]
+# Which ATS to exercise, and which companies to try in order until one has an open req.
+_argv = sys.argv[1:]
+VENDOR = "greenhouse"
+if "--vendor" in _argv:
+    i = _argv.index("--vendor")
+    VENDOR = _argv[i + 1]
+    _argv = _argv[:i] + _argv[i + 2:]
+CANDIDATES = _argv or (ats.PRIORITY.get(VENDOR) or [])[:12]
 
 # A realistic international-student persona — the app's default for unknowns.
 PROFILE = {
@@ -92,14 +97,14 @@ def stage(n, name, fn):
 
 
 def main():
-    _head(f"SMOKE · auto-apply loop (DRY) · headed={os.environ.get('APPLY_HEADED') == '1'}")
+    _head(f"SMOKE · auto-apply loop (DRY) · vendor={VENDOR} · headed={os.environ.get('APPLY_HEADED') == '1'}")
 
-    # Stage 0 — find a live Greenhouse job to apply to.
+    # Stage 0 — find a live job on this ATS to apply to.
     JOB = {}
     def s0():
         for slug in CANDIDATES:
             try:
-                feed = list(ats.fetch_feed("greenhouse", slug))
+                feed = list(ats.fetch_feed(VENDOR, slug))
             except Exception:
                 continue
             # prefer an engineering-ish role; fall back to the first opening
@@ -109,7 +114,7 @@ def main():
                 JOB.update(pick)
                 return True, f"{slug}: “{JOB.get('title')}”\n{JOB.get('url')}"
         return False, f"no openings found across {len(CANDIDATES)} companies"
-    if not stage(0, "Fetch a live Greenhouse job", s0):
+    if not stage(0, f"Fetch a live {VENDOR} job", s0):
         return _summary()
 
     # Stage 1 — canonicalize to the clean board form (avoids embed captchas).
@@ -124,6 +129,10 @@ def main():
     # Stage 2 — extract the application form (questions + required fields).
     Q = {}
     def s2():
+        if VENDOR != "greenhouse":
+            # only Greenhouse exposes a questions API; other ATSs are read straight off the
+            # rendered form by the browser engine in stage 6, which is the real test anyway.
+            return None, f"{VENDOR} has no questions API — form is read live in stage 6"
         board, jid = serve.gh_ids(JOB["url"])
         q = serve.gh_questions(board, jid)
         Q.update(q)
@@ -138,6 +147,9 @@ def main():
     ANS = {}
     def s3():
         base = engine.builtins_from(PROFILE)
+        if VENDOR != "greenhouse":
+            ANS.update(base)          # non-GH: the browser engine answers off the live form
+            return None, f"deterministic builtins only ({len(base)}); rest handled in stage 6"
         ans, blocked = engine.fill_answers(JOB, PROFILE, dict(base))
         ANS.update(ans)
         detail = f"filled {len(ans)} fields; {len(blocked)} still need a standing answer"

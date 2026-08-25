@@ -545,6 +545,14 @@ def test_activity_actions_actually_work():
 
     # "Add answers" opened an element styled by classes the dashboard never defined, so it
     # rendered unstyled at the bottom of the page — indistinguishable from nothing happening.
+    # gated on status==="needs_you", a prepared ("Not applied yet") application listed its
+    # unanswered questions with no button to answer them
+    fn = dash.split("function activityActions(a){", 1)[1].split("\n}", 1)[0]
+    check("Add answers is offered whenever there ARE questions, not by status",
+          "const ans = qs.length ?" in fn)
+    check("a draft/prepared row gets it too", "return ans+" in fn)
+    check("so does a captcha row", "`+ans+pdf+rz+open;" in fn)
+
     check("the dashboard defines the modal styles it uses",
           ".modal{" in dash and ".modal-card{" in dash)
     check("the dialog is a real overlay", "position:fixed" in dash.split(".modal{", 1)[1][:90])

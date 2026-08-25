@@ -605,11 +605,16 @@ function activityActions(a){
   const open=a.url?`<a class="btn ghost" style="padding:6px 11px" href="${esc(a.url)}" target="_blank" rel="noopener">Open form ↗</a>`:"";
   const rz=a.has_resume?`<button class="btn ghost" style="padding:6px 11px" onclick="viewActivityResume(${a.job_id})" title="The exact résumé saved for this application">📄 résumé</button>`:"";
   const pdf=`<a class="btn" style="padding:6px 11px" href="/api/resume-pdf?job=${encodeURIComponent(a.job_id)}" title="The exact PDF the agent attached — download it to apply by hand">résumé PDF ↓</a>`;
+  /* "Add answers" was gated on status==="needs_you", so a prepared application (status
+     "draft" / Not applied yet) listed its unanswered questions with no way to answer them.
+     The button belongs wherever there ARE questions, whatever the status. */
+  const qs = (a.unfilled_q&&a.unfilled_q.length) ? a.unfilled_q : (a.unfilled||[]);
+  const ans = qs.length ? `<button class="btn" style="padding:6px 11px" onclick='openAnswers(${JSON.stringify(String(a.job_id))},${JSON.stringify(JSON.stringify(qs))})' title="Answer what the agent couldn't, and it will reuse your answers everywhere">Add answers</button>` : "";
   if(a.status==="awaiting_review")return `<button class="btn accent" style="padding:6px 11px" onclick="submitReviewed(${a.job_id},this)" title="Send this prepared application now">Submit ↗</button>`+rz+open;
-  if(a.status==="blocked_captcha")return `<a class="btn accent" style="padding:6px 11px" href="${esc(a.url)}" target="_blank" rel="noopener">Solve captcha ↗</a>`+pdf+rz+open;
+  if(a.status==="blocked_captcha")return `<a class="btn accent" style="padding:6px 11px" href="${esc(a.url)}" target="_blank" rel="noopener">Solve captcha ↗</a>`+ans+pdf+rz+open;
   if(a.status==="needs_you")return `<button class="btn" style="padding:6px 11px" onclick='openAnswers(${JSON.stringify(String(a.job_id))},${JSON.stringify(JSON.stringify(a.unfilled_q&&a.unfilled_q.length?a.unfilled_q:(a.unfilled||[])))})' title="Answer what the agent couldn't, and it will reuse your answers everywhere">Add answers</button>`+pdf+rz+open;
-  if(a.status==="submitted_unconfirmed")return `<button class="btn" style="padding:6px 11px" onclick="markApplied(${a.job_id})" title="Confirm you received an application acknowledgement">Mark applied ✓</button>`+rz+open;
-  return rz+open;
+  if(a.status==="submitted_unconfirmed")return `<button class="btn" style="padding:6px 11px" onclick="markApplied(${a.job_id})" title="Confirm you received an application acknowledgement">Mark applied ✓</button>`+ans+rz+open;
+  return ans+(qs.length?pdf:"")+rz+open;   // prepared / draft rows get them too
 }
 async function submitReviewed(jobId,btn){
   if(btn){btn.disabled=true;btn.textContent="Submitting…";}

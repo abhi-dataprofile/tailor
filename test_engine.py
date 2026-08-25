@@ -144,6 +144,9 @@ def test_confirmed_vs_unconfirmed():
 def test_retry_scheduling():
     section("Retries · only genuine transient failures")
     fake_sb.reset(); _stub_common()
+    # pin the policy: the test is about WHICH failures retry, not how many the .env allows
+    _orig_retries = engine.MAX_RETRIES
+    engine.MAX_RETRIES = 3
     _stub_submit({"ok": False, "status": "error", "backend": "browser", "detail": "timeout talking to board"})
     engine.apply_one("u1", PROFILE, JOB)
     r = app_row()
@@ -155,6 +158,15 @@ def test_retry_scheduling():
     _stub_submit({"ok": True, "status": "submitted", "sent": True, "confirmed": True, "backend": "browser"})
     engine.apply_one("u1", PROFILE, JOB)
     check("a SENT application is never scheduled for retry", not app_row().get("next_retry_at"))
+
+    # and the configured cap is honoured: with retries=1 a first failure stops there
+    fake_sb.reset()
+    engine.MAX_RETRIES = 1
+    _stub_submit({"ok": False, "status": "error", "backend": "browser", "detail": "timeout"})
+    engine.apply_one("u1", PROFILE, JOB)
+    check("retries=1 means it does not keep re-firing", not app_row().get("next_retry_at"),
+          str(app_row().get("next_retry_at")))
+    engine.MAX_RETRIES = _orig_retries
 
 def test_dedup():
     section("Dedup · never apply twice to the same job")

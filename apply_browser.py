@@ -282,6 +282,22 @@ def _pw():
     except Exception as e:
         raise RuntimeError("Playwright not installed — `pip install playwright && playwright install chromium`") from e
 
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[A-Za-z]{2,}$")
+
+def _clean_contact(kind, value):
+    """Normalise a contact value, and refuse to type one that is plainly invalid.
+
+    A profile holding "abhicjadhav @gmail.com" (a stray space) was typed verbatim, and every
+    board rejected it with "enter a valid email address" — so the application could never
+    submit, on any board, for any job. Whitespace is stripped; if the result still isn't a
+    valid address we don't type it, so the reason surfaces here instead of as a validation
+    failure on the far side."""
+    v = re.sub(r"\s+", "", str(value or "")) if kind in ("email", "phone") else str(value or "").strip()
+    if kind == "email" and v and not _EMAIL_RE.match(v):
+        print(f"  [contact] refusing to fill an invalid email: {value!r}")
+        return ""
+    return v
+
 def _fill_first(page, selectors, value):
     if not value:
         return False
@@ -1090,8 +1106,8 @@ def submit(job, answers, resume_html, standing=None, dry=True, headless=True, ti
                 "full_name":  _fill_first(frame, pack["full_name"], full),
                 "first_name": _fill_first(frame, pack["first_name"], answers.get("first_name")),
                 "last_name":  _fill_first(frame, pack["last_name"], answers.get("last_name")),
-                "email":      _fill_first(frame, pack["email"], answers.get("email")),
-                "phone":      _fill_first(frame, pack["phone"], answers.get("phone")),
+                "email":      _fill_first(frame, pack["email"], _clean_contact("email", answers.get("email"))),
+                "phone":      _fill_first(frame, pack["phone"], _clean_contact("phone", answers.get("phone"))),
             }
             # résumé upload (render a real PDF, attach to the vendor's file input)
             attached = False

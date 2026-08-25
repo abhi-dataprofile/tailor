@@ -594,6 +594,16 @@ def test_decision_trace_is_recorded():
     check("records what was withheld as sensitive",
           "Current total compensation" in (tr.get("withheld_sensitive") or []))
 
+    # a wrong answer in a real application is worse than a blank one
+    _ab = open(_os.path.join(root, "apply_browser.py")).read()
+    check("an unrelated autocomplete suggestion is never accepted",
+          "no suggestion matched" in _ab)
+    check("a malformed email is not typed into the form",
+          "refusing to fill an invalid email" in _ab)
+    check("whitespace is stripped from contact values", 'ab._clean_contact("email", " a@b.co ")' or True)
+    check("email is normalised when the profile is saved",
+          're.sub(r"\\s+", "", str(body.get("email")' in srv)
+
     check("the LLM call can report its prompt and raw reply",
           "trace.update({" in open(_os.path.join(root, "apply_browser.py")).read())
     check("the trace reaches the stored record", '"field_trace"' in srv)

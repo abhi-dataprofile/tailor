@@ -1183,8 +1183,11 @@ class H(SimpleHTTPRequestHandler):
             user = _req_user(self)          # identity from the token, NOT the request body
             try:
                 if self.path == "/api/profile":
+                    # a stray space in an email means every ATS rejects the application —
+                    # normalise on the way in rather than discovering it on a real form
+                    _email = re.sub(r"\s+", "", str(body.get("email") or ""))
                     row = {"user_id": user,
-                           "name": body.get("name"), "email": body.get("email"),
+                           "name": body.get("name"), "email": _email,
                            "title": body.get("title"), "contact": body.get("contact"),
                            "summary": body.get("summary"), "skills": body.get("skills") or [],
                            "memory": body.get("memory") or {}, "data": body.get("data") or {},

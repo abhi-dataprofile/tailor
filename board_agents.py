@@ -267,7 +267,7 @@ def to_json(schema):
 
 # ─────────────────────────────────────────────────────────────── planning
 
-def plan(schema, bank, context="", extra_prompt=""):
+def plan(schema, bank, context="", extra_prompt="", trace=None):
     """Answer the whole form at once. Returns {key: {answer, source}}.
 
     Order of authority, highest first:
@@ -295,10 +295,19 @@ def plan(schema, bank, context="", extra_prompt=""):
         if f["required"]:
             ask.append(f)
 
+    if trace is not None:
+        trace["answered_from_profile"] = {f["key"]: out[f["key"]] for f in schema if f["key"] in out}
+        trace["sent_to_model"] = [f["label"] for f in ask]
+        trace["withheld_sensitive"] = [f["label"] for f in schema
+                                       if f["sensitive"] and f["key"] not in out]
+        trace["left_to_human"] = [f["label"] for f in schema if f["type"] == "consent"]
     if ask and context:
         fields = [{"label": f["label"], "options": f["options"]} if f["options"]
                   else {"label": f["label"]} for f in ask]
-        answered = ab._llm_answer_fields(context, fields, extra_prompt) or {}
+        llm_trace = {} if trace is not None else None
+        answered = ab._llm_answer_fields(context, fields, extra_prompt, trace=llm_trace) or {}
+        if trace is not None:
+            trace["llm"] = llm_trace
         by_label = {f["label"]: f for f in ask}
         for label, ans in answered.items():
             f = by_label.get(label)
@@ -366,8 +375,12 @@ def fill(page, frame, schema, planned):
 
 def run(page, frame, vendor, bank, context="", extra_prompt=""):
     """navigate → extract → plan → fill, returning everything for the record."""
+    trace = {"agent": route(page.url or "")["name"],
+             "profile_facts": {k: v for k, v in (bank or {}).items()
+                               if not str(k).startswith("_") and v}}
     schema = extract(frame)
-    planned = plan(schema, bank, context, extra_prompt)
+    trace["fields_read"] = to_json(schema)
+    planned = plan(schema, bank, context, extra_prompt, trace=trace)
     filled, missing = fill(page, frame, schema, planned)
     return {
         "schema": to_json(schema),
@@ -376,4 +389,5 @@ def run(page, frame, vendor, bank, context="", extra_prompt=""):
         "unfilled_required": missing,
         "counts": {"fields": len(schema), "planned": len(planned),
                    "filled": len(filled), "missing": len(missing)},
+        "trace": trace,          # the whole chain: agent, facts, fields, prompt, response
     }

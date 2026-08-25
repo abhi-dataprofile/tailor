@@ -179,6 +179,14 @@ a{color:var(--primary-tint)}
 .modal-card .in{width:100%;border:1px solid var(--line);border-radius:9px;padding:9px 11px;
   font:400 13.5px "Inter",system-ui,sans-serif;background:#fff}
 .modal-card .in:focus{outline:none;border-color:var(--primary,#1f6f4f)}
+.trace{display:flex;flex-direction:column;gap:7px;font-size:12.5px}
+.trace .tr-row{display:grid;grid-template-columns:190px 1fr;gap:12px;align-items:start}
+.trace .tr-row b{color:var(--ink-soft);font-weight:600}
+.trace code{display:inline-block;background:rgba(0,0,0,.045);border-radius:5px;padding:2px 6px;margin:0 4px 4px 0;font-size:11.5px}
+.trace .tr-more{margin-top:4px}
+.trace .tr-more summary{cursor:pointer;color:var(--ink-soft);font-size:12px}
+.trace .tr-more pre{white-space:pre-wrap;background:rgba(0,0,0,.04);border-radius:8px;padding:10px;
+  font-size:11.5px;max-height:260px;overflow:auto;margin:6px 0 0}
 </style>
 </head>
 <body>
@@ -533,6 +541,21 @@ function renderDetail(d){
     <div class="dt-sec"><div class="dt-h">Timeline</div>${tl}</div>
     <div class="dt-cols">
       <div class="dt-sec"><div class="dt-h">Answers submitted</div>${ans}</div>
+      ${d.trace&&Object.keys(d.trace).length?`
+      <div class="dt-sec"><div class="dt-h">How the agent decided</div>
+        <div class="trace">
+          <div class="tr-row"><b>Board agent</b><span>${esc(d.trace.agent||"—")}</span></div>
+          <div class="tr-row"><b>Your data it used</b><span>${Object.entries(d.trace.profile_facts||{}).map(([k,v])=>`<code>${esc(k)}=${esc(String(v).slice(0,42))}</code>`).join(" ")||"—"}</span></div>
+          <div class="tr-row"><b>Fields read from the form</b><span>${(d.trace.fields_read||[]).map(f=>`<code title="${esc(f.options&&f.options.length?f.options.join(' | '):'')}">${esc(f.label.slice(0,44))} · ${esc(f.type)}${f.required?" · required":""}${f.sensitive?" · sensitive":""}</code>`).join(" ")||"—"}</span></div>
+          <div class="tr-row"><b>Answered from your profile</b><span>${Object.entries(d.trace.answered_from_profile||{}).map(([k,v])=>`<code>${esc(k.split(":").slice(1).join(":").slice(0,34))} → ${esc(String(v.answer||"").slice(0,30))}</code>`).join(" ")||"—"}</span></div>
+          <div class="tr-row"><b>Sent to the model</b><span>${(d.trace.sent_to_model||[]).map(q=>`<code>${esc(q.slice(0,60))}</code>`).join(" ")||"none"}</span></div>
+          <div class="tr-row"><b>Withheld (yours to answer)</b><span>${((d.trace.withheld_sensitive||[]).concat(d.trace.left_to_human||[])).map(q=>`<code>${esc(q.slice(0,50))}</code>`).join(" ")||"—"}</span></div>
+          ${d.trace.llm&&d.trace.llm.system_prompt?`
+          <details class="tr-more"><summary>System prompt · ${esc(d.trace.llm.provider||"model")}</summary><pre>${esc(d.trace.llm.system_prompt)}</pre></details>
+          <details class="tr-more"><summary>What it was given</summary><pre>${esc(d.trace.llm.context||"")}</pre></details>
+          <details class="tr-more"><summary>Raw model response</summary><pre>${esc(d.trace.llm.raw_response||"(none)")}</pre></details>`:''}
+        </div>
+      </div>` : ''}
       <div class="dt-sec"><div class="dt-h">Fields filled</div>${filled.length?filled.map(f=>`<span class="tag">${esc(f)}</span>`).join(" "):'<div class="sub">—</div>'}
         <div class="dt-h" style="margin-top:12px">Record</div>${meta.map(r=>`<div class="dt-meta"><span class="sub">${r[0]}</span><span>${esc(String(r[1]))}</span></div>`).join("")}</div>
     </div></div>`;

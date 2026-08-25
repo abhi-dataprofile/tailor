@@ -564,6 +564,46 @@ def test_activity_actions_actually_work():
           "resume_build.build_resume_html(_prof" in srv)
 
 
+def test_decision_trace_is_recorded():
+    section("Observability · where every answer came from")
+    import apply_browser as ab, board_agents as bg, os as _os
+    root = _os.path.dirname(_os.path.abspath(__file__))
+    srv = open(_os.path.join(root, "serve.py")).read()
+    dash = open(_os.path.join(root, "dashboard.html")).read()
+
+    # A local model routinely emits TWO "answers" keys in one object; json.loads keeps the
+    # last, so real answers were being thrown away and the question looked unanswered.
+    dup = '{"answers":{"A":"1"},"answers":{"B":"2"}}'
+    merged = ab._merge_answer_objects(dup)
+    check("duplicate answer blocks are merged, not discarded",
+          merged == {"A": "1", "B": "2"}, str(merged))
+    check("a single well-formed object still parses",
+          ab._merge_answer_objects('{"answers":{"A":"1"}}') == {"A": "1"})
+    check("garbage yields nothing rather than raising",
+          ab._merge_answer_objects("not json") == {})
+
+    schema = [
+        {"key": "text:phone", "label": "Phone", "type": "text", "required": True, "options": [], "sensitive": False, "_el": None},
+        {"key": "text:comp", "label": "Current total compensation", "type": "text", "required": True, "options": [], "sensitive": True, "_el": None},
+        {"key": "text:why", "label": "Why this role?", "type": "textarea", "required": True, "options": [], "sensitive": False, "_el": None},
+    ]
+    tr = {}
+    bg.plan(schema, {"phone": "+1 555 010 2020"}, context="", trace=tr)
+    check("records what came from the profile", "text:phone" in (tr.get("answered_from_profile") or {}))
+    check("records what was sent to the model", "Why this role?" in (tr.get("sent_to_model") or []))
+    check("records what was withheld as sensitive",
+          "Current total compensation" in (tr.get("withheld_sensitive") or []))
+
+    check("the LLM call can report its prompt and raw reply",
+          "trace.update({" in open(_os.path.join(root, "apply_browser.py")).read())
+    check("the trace reaches the stored record", '"field_trace"' in srv)
+    check("the detail endpoint exposes it", '"trace": rec.get("field_trace")' in srv)
+    check("the UI shows the decision chain", "How the agent decided" in dash)
+    for label in ("Your data it used", "Fields read from the form", "Sent to the model",
+                  "Withheld (yours to answer)", "System prompt", "Raw model response"):
+        check(f"UI surfaces: {label}", label in dash)
+
+
 def test_dead_feed_is_not_silent():
     section("Job sources · a DEAD feed must not masquerade as 'no openings'")
     import ats
@@ -592,7 +632,7 @@ def main():
               test_never_submits_without_resume, test_consent_prefers_rejecting,
               test_opening_a_posting_is_not_an_application,
               test_answers_can_be_saved_and_reused, test_navigates_to_the_real_form,
-              test_board_agents_plan_then_fill, test_nav_is_identical_everywhere, test_activity_actions_actually_work):
+              test_board_agents_plan_then_fill, test_nav_is_identical_everywhere, test_activity_actions_actually_work, test_decision_trace_is_recorded):
         try:
             t()
         except Exception as e:

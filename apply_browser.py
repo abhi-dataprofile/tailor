@@ -616,7 +616,43 @@ _SENSITIVE_RE = re.compile(
 def _strip_html(h):
     return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", h or "")).strip()
 
-def _llm_answer_fields(context, fields, extra=""):
+def _merge_answer_objects(raw):
+    """Collect EVERY {"answers": {...}} block in the model's output and merge them.
+
+    Small local models routinely emit two "answers" keys in one object —
+    {"answers":{"A":"x"},"answers":{"B":"y"}} — and json.loads keeps only the last, silently
+    throwing away perfectly good answers. That is why obvious questions came back unanswered
+    while the model had in fact answered them."""
+    out = {}
+    if not raw:
+        return out
+    for m in re.finditer(r'"answers"\s*:\s*(\{)', raw):
+        i = m.start(1)
+        depth, j = 0, i
+        while j < len(raw):                      # walk to the matching brace
+            if raw[j] == "{":
+                depth += 1
+            elif raw[j] == "}":
+                depth -= 1
+                if depth == 0:
+                    break
+            j += 1
+        try:
+            for k, v in (json.loads(raw[i:j + 1]) or {}).items():
+                if isinstance(v, str) and v.strip() and k not in out:
+                    out[k] = v
+        except Exception:
+            continue
+    if not out:                                   # a single well-formed object
+        m = re.search(r"\{[\s\S]*\}", raw)
+        try:
+            obj = json.loads(m.group(0)) if m else {}
+            out = {k: v for k, v in (obj.get("answers") or obj).items() if isinstance(v, str)}
+        except Exception:
+            pass
+    return out
+
+def _llm_answer_fields(context, fields, extra="", trace=None):
     """Answer NON-sensitive application questions from the candidate's own material, using the
     backend LLM (llm.py: a configured hosted key OR local Ollama). Returns {label: answer}.
     Returns {} when no model is available or on any error — callers then fall back to needs_you.
@@ -636,16 +672,28 @@ def _llm_answer_fields(context, fields, extra=""):
         sysp = ("You are completing a job application AS the candidate, using ONLY the candidate "
                 "material provided. If the material does not support an answer, return an empty string "
                 "for that question — NEVER invent facts, dates, numbers, employers, or credentials. "
+                "FACTS (employers, dates, degrees, numbers) must come from the material. "
+                "WILLINGNESS questions are different: 'are you happy to work N days in the office', "
+                "'can you commute', 'are you willing to relocate', 'do you accept the location' are "
+                "about intent, not history. Answer those affirmatively from the candidate's stated "
+                "preferences unless the material says otherwise — a candidate applying to a role has "
+                "by definition accepted its stated working arrangement. "
                 "For questions with choose_one_of, reply with EXACTLY one of those options. Keep "
                 "free-text answers concise, first-person and professional. "
                 + (("Extra guidance from the candidate: " + extra.strip()[:800] + " ") if extra else "")
                 + 'Return STRICT JSON: {"answers":{"<exact question text>":"<answer>"}}.')
         userp = "CANDIDATE MATERIAL:\n" + context[:3800] + "\n\nQUESTIONS (JSON):\n" + json.dumps(qs)
         raw = llm.gen(sysp, userp, json_mode=True, temp=0, max_tokens=800)
-        m = re.search(r"\{[\s\S]*\}", raw or "")
-        obj = json.loads(m.group(0)) if m else {}
-        return {k: v.strip() for k, v in (obj.get("answers") or {}).items() if isinstance(v, str) and v.strip()}
-    except Exception:
+        if trace is not None:
+            trace.update({"provider": (llm.available() or ["?"])[0], "system_prompt": sysp,
+                          "context": context[:3800], "questions": qs, "raw_response": (raw or "")[:4000]})
+        merged = _merge_answer_objects(raw)
+        if trace is not None:
+            trace["parsed"] = merged
+        return {k: v.strip() for k, v in merged.items() if isinstance(v, str) and v.strip()}
+    except Exception as e:
+        if trace is not None:
+            trace["error"] = str(e)[:200]
         return {}
 
 def _is_combobox(el):
@@ -1162,6 +1210,7 @@ def submit(job, answers, resume_html, standing=None, dry=True, headless=True, ti
                 prepared["field_schema"] = plan_out["schema"]
                 prepared["filled_labels"] = plan_out["filled_labels"]
                 prepared["plan_counts"] = plan_out["counts"]
+                prepared["field_trace"] = plan_out.get("trace") or {}
             if not form_ready:
                 return {"ok": False, "status": "form_not_ready",
                         "detail": "Never reached a real application form — " + "; ".join(warnings)

@@ -982,6 +982,7 @@ def application_detail(user, job_id):
             "submitted_fields": [f.get("label") or f.get("name") for f in submitted_fields if isinstance(f, dict)][:20],
             "unfilled": [u.get("label") for u in (rec.get("unfilled_required") or []) if isinstance(u, dict) and u.get("label")],
             "has_shot": bool(rec.get("screenshot")),
+            "trace": rec.get("field_trace") or {},     # how every answer was decided
             "has_resume": bool(a.get("job_id"))}
 
 class H(SimpleHTTPRequestHandler):
@@ -1406,6 +1407,7 @@ class H(SimpleHTTPRequestHandler):
                 res = {"ok": False, "status": "error", "detail": str(e)[:200]}
             rec = {"at": time.strftime("%Y-%m-%d %H:%M:%S"), "user": user, "backend": "browser",
                    "resume_pdf": res.get("resume_pdf") or "",
+                   "field_trace": res.get("field_trace") or {},   # how each answer was decided
                    "url": body.get("url"), "job": body.get("label"), "job_id": body.get("job_id"),
                    "live": bool(body.get("live")), "ok": bool(res.get("ok")), "status": res.get("status"),
                    "detail": res.get("detail"), "screenshot": res.get("screenshot"),

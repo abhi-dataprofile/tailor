@@ -344,7 +344,13 @@ def submit_reviewed(user_id, job_id):
     return {"ok": True, "result": st}
 
 def run(user):
-    users = [{"user_id": user}] if user else [u for u in sb.select("profiles", {"select": "user_id"})]
+    # A worker must never die on a database blip — the loop that calls us should just try
+    # again next cycle. A raw traceback here kills the whole auto-applier process.
+    try:
+        users = [{"user_id": user}] if user else [u for u in sb.select("profiles", {"select": "user_id"}, timeout=20)]
+    except Exception as e:
+        print(f"[apply] database unreachable ({str(e)[:80]}) — skipping this cycle")
+        return
     for u in users:
         prof = (sb.select("profiles", {"user_id": f"eq.{u['user_id']}", "select": "*"}) or [{}])[0]
         cfg = (prof.get("data") or {}).get("auto_apply") or {}
@@ -407,8 +413,13 @@ def run_retry():
                   {"status": "failed_transient"})
     except Exception:
         pass
-    due = sb.select("applications", {"status": "eq.failed_transient", "select": "user_id,job_id,attempts",
-                                     "or": f"(next_retry_at.is.null,next_retry_at.lt.{now})", "limit": "300"})
+    try:
+        due = sb.select("applications", {"status": "eq.failed_transient", "select": "user_id,job_id,attempts",
+                                         "or": f"(next_retry_at.is.null,next_retry_at.lt.{now})", "limit": "300"},
+                        timeout=20)
+    except Exception as e:
+        print(f"[retry] database unreachable ({str(e)[:80]}) — skipping this cycle")
+        return
     retried = 0
     for a in due:
         if (a.get("attempts") or 0) >= MAX_RETRIES:

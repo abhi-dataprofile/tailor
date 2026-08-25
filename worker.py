@@ -51,7 +51,14 @@ def seed_companies():
                 sb.upsert("companies", vrows[i:i + 500], on_conflict="vendor,slug", update=False)
             ok += len(vrows)
         except Exception as e:
-            print(f"[seed] skipped {len(vrows)} {v} rows ({str(e)[:80]}) — run the vendor migration to enable")
+            msg = str(e)
+            # A 5xx/timeout is the DATABASE being unreachable — not a schema problem. Saying
+            # "run the vendor migration" there sends you chasing the wrong fix (and it prints
+            # once per vendor, which reads like five separate failures).
+            hint = ("database unreachable — check your Supabase project status"
+                    if any(c in msg for c in ("500", "502", "503", "504", "520", "521", "522", "timed out"))
+                    else "run the vendor migration to enable this source")
+            print(f"[seed] skipped {len(vrows)} {v} rows — {hint} ({msg[:60].strip()})")
     print(f"[seed] {ok}/{len(rows)} companies ensured")
 
 def due_companies(limit):

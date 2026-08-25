@@ -166,15 +166,7 @@ a{color:var(--primary-tint)}
 
 <div class="top"><div class="top-in">
   <span class="mark">Tail<em>or</em></span>
-  <nav class="nav">
-    <button class="on" data-view="dash" onclick="showView('dash')">Dashboard</button>
-    <button onclick="location.href='index.html?find=1'">Find jobs</button>
-    <button onclick="location.href='index.html'">Workbench</button>
-    <button onclick="location.href='index.html?profile=1'">Profile</button>
-    <button onclick="showReviewQueue()">Review queue<span id="rqNav" class="rq-badge" style="display:none"></span></button>
-    <button data-view="agent" onclick="showView('agent')">Agent</button>
-    <button data-view="net" onclick="showView('net')">Networking</button>
-  </nav>
+  <nav class="nav"></nav>
   <div class="top-right">
     <button class="stat asp" id="autoSubmitPill" onclick="toggleAutoSubmit()" title="Switch between Fill-only and Auto-submit"><span class="dot"></span><span>Fill only</span></button>
     <span class="stat" id="planStat" style="display:none"></span>
@@ -878,7 +870,8 @@ async function saveOrch(btn){
   if(r&&r.ok&&r.config){AG_CFG=r.config;renderPrompts(r.config);}
   if($("agSaved")){$("agSaved").textContent=(r&&r.ok)?"Saved ✓":"Couldn't save";setTimeout(()=>{if($("agSaved"))$("agSaved").textContent="";},2500);}
 }
-function showView(v,noHash){if(!$("v-"+v))v="dash";document.querySelectorAll(".view").forEach(el=>el.classList.remove("on"));$("v-"+v).classList.add("on");
+function showView(v,noHash){
+  if(window.renderNav)renderNav(v==="net"?"net":v==="agent"?"agent":"dash");if(!$("v-"+v))v="dash";document.querySelectorAll(".view").forEach(el=>el.classList.remove("on"));$("v-"+v).classList.add("on");
   document.querySelectorAll(".nav button[data-view]").forEach(b=>b.classList.toggle("on",b.dataset.view===v));
   if(v==="agent")loadAgent();
   if(!noHash&&("#"+v)!==location.hash){try{history.replaceState(null,"","#"+v);}catch(e){}}
@@ -958,6 +951,43 @@ function refreshRqBadge(){
   if(b){b.textContent=n;b.style.display=n?"inline-block":"none";}
 }
 window.showReviewQueue=showReviewQueue;window.refreshRqBadge=refreshRqBadge;
+</script>
+<script>
+/* ── ONE nav definition, rendered into every nav on the page ──────────────────
+   There were three hand-maintained copies (workbench, find-jobs, dashboard) and they
+   drifted: find-jobs was missing Review queue and Agent, the dashboard was missing
+   Review queue. Generating them from this list is the only way they stay identical. */
+const NAV_ITEMS = [
+  {id:"dash",    label:"Dashboard"},
+  {id:"find",    label:"Find jobs"},
+  {id:"wb",      label:"Workbench"},
+  {id:"profile", label:"Profile"},
+  {id:"review",  label:"Review queue", badge:"rqNav"},
+  {id:"agent",   label:"Agent"},
+  {id:"net",     label:"Networking"},
+];
+function renderNav(active){
+  document.querySelectorAll("nav.pnav, nav.nav").forEach(nav=>{
+    nav.innerHTML = NAV_ITEMS.map(it=>{
+      const on = it.id===active ? ' class="on"' : "";
+      const badge = it.badge ? `<span id="${it.badge}" class="rq-badge" style="display:none"></span>` : "";
+      return `<button${on} data-nav="${it.id}" onclick="navGo('${it.id}')">${it.label}${badge}</button>`;
+    }).join("");
+  });
+  if(window.refreshRqBadge)try{refreshRqBadge()}catch(e){}
+}
+
+function navGo(id){
+  if(id==="wb")     return location.href="index.html";
+  if(id==="find")   return location.href="index.html?find=1";
+  if(id==="profile")return location.href="index.html?profile=1";
+  if(id==="review") return showReviewQueue();
+  if(id==="agent")  return showView("agent");
+  if(id==="net")    return showView("net");
+  if(id==="dash")   return showView("dash");
+}
+window.renderNav=renderNav;window.navGo=navGo;
+renderNav("dash");
 </script>
 </body>
 </html>

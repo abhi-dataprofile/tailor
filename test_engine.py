@@ -469,6 +469,40 @@ def test_board_agents_plan_then_fill():
           "[planner] falling back" in open(_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "apply_browser.py")).read())
 
 
+def test_nav_is_identical_everywhere():
+    section("Nav · one definition, identical on every page")
+    import os as _os, re as _re
+    root = _os.path.dirname(_os.path.abspath(__file__))
+    idx = open(_os.path.join(root, "index.html")).read()
+    dash = open(_os.path.join(root, "dashboard.html")).read()
+
+    def items(src):
+        m = _re.search(r"const NAV_ITEMS = \[(.*?)\];", src, _re.S)
+        return _re.findall(r'label:"([^"]+)"', m.group(1)) if m else []
+    a, b = items(idx), items(dash)
+    check("both pages define the same nav", a == b and len(a) == 7, f"{a} vs {b}")
+    check("Review queue and Agent are both present", {"Review queue", "Agent"} <= set(a), str(a))
+    # every nav element must be EMPTY in markup — filled by the renderer, never hand-written,
+    # which is how three copies drifted apart in the first place
+    for name, src in (("index.html", idx), ("dashboard.html", dash)):
+        bodies = _re.findall(r'<nav class="(?:pnav|nav)">(.*?)</nav>', src, _re.S)
+        hand = [b for b in bodies if _re.search(r"<(?:a|button)\b", b)]
+        check(f"{name} has no hand-written nav items", not hand,
+              f"{len(hand)} nav(s) still hard-coded")
+    check("both render on load", "renderNav(" in idx and "renderNav(" in dash)
+
+    # I broke both pages twice by appending before the FIRST </body>, which lives inside a JS
+    # string literal ("<html><body>…</body></html>"). Scripts must go before the LAST one.
+    for name, src in (("index.html", idx), ("dashboard.html", dash)):
+        check(f"{name}: the JS string literal containing </body> is intact",
+              src.count("</body>") >= 2 and src.rstrip().endswith("</html>"))
+        check(f"{name}: nav script sits before the FINAL </body>",
+              src.rindex("NAV_ITEMS") < src.rindex("</body>"))
+        check(f"{name}: script tags balance",
+              src.count("<script") == src.count("</script>"),
+              f'{src.count("<script")}/{src.count("</script>")}')
+
+
 def test_dead_feed_is_not_silent():
     section("Job sources · a DEAD feed must not masquerade as 'no openings'")
     import ats
@@ -497,7 +531,7 @@ def main():
               test_never_submits_without_resume, test_consent_prefers_rejecting,
               test_opening_a_posting_is_not_an_application,
               test_answers_can_be_saved_and_reused, test_navigates_to_the_real_form,
-              test_board_agents_plan_then_fill):
+              test_board_agents_plan_then_fill, test_nav_is_identical_everywhere):
         try:
             t()
         except Exception as e:

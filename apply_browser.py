@@ -553,19 +553,86 @@ def _country_eq(a, b):
     except Exception:
         return False
 
-def _opt_match(ans, texts):
-    """Index of the option in `texts` that best matches answer `ans` (case-insensitive substring
-    either direction, then country-equivalence), or None. Shared by checkgroups and comboboxes."""
+_US_STATE = {
+    "alabama":"al","alaska":"ak","arizona":"az","arkansas":"ar","california":"ca","colorado":"co",
+    "connecticut":"ct","delaware":"de","florida":"fl","georgia":"ga","hawaii":"hi","idaho":"id",
+    "illinois":"il","indiana":"in","iowa":"ia","kansas":"ks","kentucky":"ky","louisiana":"la",
+    "maine":"me","maryland":"md","massachusetts":"ma","michigan":"mi","minnesota":"mn",
+    "mississippi":"ms","missouri":"mo","montana":"mt","nebraska":"ne","nevada":"nv",
+    "new hampshire":"nh","new jersey":"nj","new mexico":"nm","new york":"ny",
+    "north carolina":"nc","north dakota":"nd","ohio":"oh","oklahoma":"ok","oregon":"or",
+    "pennsylvania":"pa","rhode island":"ri","south carolina":"sc","south dakota":"sd",
+    "tennessee":"tn","texas":"tx","utah":"ut","vermont":"vt","virginia":"va","washington":"wa",
+    "west virginia":"wv","wisconsin":"wi","wyoming":"wy",
+}
+
+def _norm_place(v):
+    """Collapse a place string to comparable tokens, folding state names to their codes so
+    "Buffalo, New York" and "Buffalo, NY, USA" share the state token instead of looking like
+    different cities."""
+    v = str(v or "").lower()
+    for name, code in _US_STATE.items():
+        v = re.sub(r"(?<![a-z])" + re.escape(name) + r"(?![a-z])", code, v)
+    return v
+
+def _is_bare_country(v):
+    """True when the whole string is just a country ("US", "USA", "United States") — not a
+    city that merely happens to sit in one. Without this, country-equivalence made "San Jose,
+    CA" and "Buffalo, Wyoming, USA" the same place, because both resolve to the US."""
+    v = str(v or "").strip().strip(",.")
+    if not v or len(v.split()) > 3:
+        return False
+    try:
+        import geo
+        c = geo.country_of(v)
+        return bool(c) and (v.lower() == c.lower() or len(v) <= 3)
+    except Exception:
+        return False
+
+def _opt_score(ans, text):
+    """How well one option matches an answer, 0..1.
+
+    The leading token carries most of the weight: for a place, that is the city name, which is
+    what actually distinguishes "Buffalo, NY, USA" from "Buffalo City, Eastern Cape, South
+    Africa". Extra words in the option are penalised lightly so a longer, noisier option does
+    not win on overlap alone."""
+    a, t = str(ans or "").strip().lower(), str(text or "").strip().lower()
+    if not a or not t:
+        return 0.0
+    if a == t:
+        return 1.0
+    if _is_bare_country(a) and _country_eq(a, t):
+        return 0.95
+    aw = re.findall(r"[a-z0-9+]+", _norm_place(a))
+    tw = re.findall(r"[a-z0-9+]+", _norm_place(t))
+    if not aw or not tw:
+        return 0.0
+    sa, st = set(aw), set(tw)
+    shared = sa & st
+    if not shared:
+        return 0.0
+    # a short distinctive token that appears whole — a dialling code (+1), a state code (NY),
+    # an airport-style abbreviation — identifies the option on its own
+    if len(aw) == 1 and len(aw[0]) <= 4 and aw[0] in st:
+        return 0.9
+    lead = 0.60 if aw[0] == tw[0] else 0.0            # same first word → almost certainly it
+    cover = 0.40 * (len(shared) / len(sa))            # how much of the answer is present
+    noise = 0.20 * (len(st - sa) / max(1, len(st)))   # how much the option adds
+    return max(0.0, lead + cover - noise)
+
+def _opt_match(ans, texts, threshold=0.34):
+    """Index of the option that BEST matches `ans`, or None if nothing is close enough.
+
+    Returning the first option that shared any text is how "Buffalo" became "Buffalo City,
+    Eastern Cape, South Africa" on a live application."""
     a = str(ans or "").strip().lower()
     if not a:
         return None
-    for i, t in enumerate(texts):
-        tl = (t or "").strip().lower()
-        if tl and (a == tl or a in tl or tl in a):
-            return i
-    for i, t in enumerate(texts):                      # country codes/names: US ↔ United States
-        if _country_eq(a, t):
-            return i
+    # ties break toward the EARLIER option: autocompletes and selects list their most
+    # relevant choice first, so position is real signal when scores are equal.
+    scored = sorted(((_opt_score(a, t), -i) for i, t in enumerate(texts)), reverse=True)
+    if scored and scored[0][0] >= threshold:
+        return -scored[0][1]
     return None
 
 _DATE_WORDS = re.compile(r"\b(date|start|available|availability|when can you (start|begin)|earliest|notice period)\b", re.I)
@@ -684,7 +751,12 @@ def _llm_answer_fields(context, fields, extra="", trace=None):
             return {}
         qs = []
         for f in fields:
-            qs.append({"q": f["label"], "choose_one_of": f["options"][:12]} if f.get("options") else {"q": f["label"]})
+            q = {"q": f["label"]}
+            if f.get("choose_one_of") or f.get("options"):
+                q["choose_one_of"] = (f.get("choose_one_of") or f.get("options"))[:14]
+            if f.get("candidate_said"):
+                q["candidate_said"] = f["candidate_said"]
+            qs.append(q)
         sysp = ("You are completing a job application AS the candidate, using ONLY the candidate "
                 "material provided. If the material does not support an answer, return an empty string "
                 "for that question — NEVER invent facts, dates, numbers, employers, or credentials. "
@@ -694,7 +766,9 @@ def _llm_answer_fields(context, fields, extra="", trace=None):
                 "about intent, not history. Answer those affirmatively from the candidate's stated "
                 "preferences unless the material says otherwise — a candidate applying to a role has "
                 "by definition accepted its stated working arrangement. "
-                "For questions with choose_one_of, reply with EXACTLY one of those options. Keep "
+                "For questions with choose_one_of, reply with EXACTLY one of those options. When a "
+                "question carries candidate_said, that is the candidate's own answer in their words — "
+                "map it onto the closest listed option rather than discarding it. Keep "
                 "free-text answers concise, first-person and professional. "
                 + (("Extra guidance from the candidate: " + extra.strip()[:800] + " ") if extra else "")
                 + 'Return STRICT JSON: {"answers":{"<exact question text>":"<answer>"}}.')
@@ -737,11 +811,14 @@ def _fill_combobox(page, el, value):
             opts = [o for o in page.query_selector_all(sel) if o.is_visible()]
             if not opts:
                 continue
-            pick = None
+            texts = []
             for o in opts:
-                t = (o.inner_text() or "").strip().lower()
-                if t and (vl[:14] in t or t[:14] in vl or _country_eq(vl, t)):
-                    pick = o; break
+                try:
+                    texts.append((o.inner_text() or "").strip())
+                except Exception:
+                    texts.append("")
+            mi = _opt_match(v, texts, threshold=0.34)
+            pick = opts[mi] if mi is not None else None
             if pick is None:
                 # Never settle for "whatever came first". Typing "Buffalo" into a places
                 # autocomplete and taking the top suggestion put "Buffalo City, Eastern Cape,

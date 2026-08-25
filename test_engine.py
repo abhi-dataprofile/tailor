@@ -426,7 +426,10 @@ def test_board_agents_plan_then_fill():
     # planning: the whole form at once, with the sensitive guardrail intact
     schema = [
         {"key": "text:phone", "label": "Phone", "type": "text", "required": True, "options": [], "sensitive": False, "_el": None},
-        {"key": "radio:gender", "label": "Gender", "type": "radio", "required": True, "options": ["Male", "Female"], "sensitive": True, "_el": None},
+        # real demographic fields include a decline option — without one, a saved answer of
+        # "Prefer not to say" correctly matches nothing and is left for the candidate.
+        {"key": "radio:gender", "label": "Gender", "type": "radio", "required": True,
+         "options": ["Male", "Female", "Prefer not to say"], "sensitive": True, "_el": None},
         {"key": "text:salary", "label": "Salary expectation", "type": "text", "required": True, "options": [], "sensitive": True, "_el": None},
         {"key": "consent:arb", "label": "Arbitration Agreement", "type": "consent", "required": True, "options": [], "sensitive": False, "_el": None},
         {"key": "combo:loc", "label": "Where are you currently located?", "type": "combo", "required": True, "options": [], "sensitive": False, "_el": None},
@@ -614,6 +617,47 @@ def test_decision_trace_is_recorded():
         check(f"UI surfaces: {label}", label in dash)
 
 
+def test_option_matching_is_precise():
+    section("Option matching · the right choice, or none at all")
+    import apply_browser as ab, board_agents as bg
+    sugg = ["Buffalo City, Eastern Cape, South Africa", "Buffalo, NY, USA",
+            "Buffalo Grove, IL, USA", "Buffalo, Wyoming, USA"]
+    def pick(a):
+        i = ab._opt_match(a, sugg)
+        return sugg[i] if i is not None else None
+    check("a state name folds to its code (New York ↔ NY)", pick("Buffalo, New York") == "Buffalo, NY, USA",
+          str(pick("Buffalo, New York")))
+    check("an unrelated city matches NOTHING rather than the first hit",
+          pick("San Jose, CA") is None, str(pick("San Jose, CA")))
+    check("ties break toward the higher-ranked suggestion", pick("Buffalo") == "Buffalo, NY, USA",
+          str(pick("Buffalo")))
+    ctry = ["United States (+1)", "United Kingdom (+44)", "India (+91)"]
+    for a, want in (("United States", 0), ("US", 0), ("+1", 0), ("India", 2)):
+        check(f"country/dial code: {a}", ab._opt_match(a, ctry) == want, str(ab._opt_match(a, ctry)))
+    yn = ["Yes", "No"]
+    check("plain yes/no still matches", ab._opt_match("Yes", yn) == 0 and ab._opt_match("No", yn) == 1)
+
+    # a saved answer that fits none of the options is useless to the form
+    schema = [
+        {"key": "sel:rtw", "label": "Please confirm your Right to Work status", "type": "select",
+         "required": True, "sensitive": True, "_el": None,
+         "options": ["I have the right to work without sponsorship",
+                     "I will require visa sponsorship now or in the future"]},
+        {"key": "sel:office", "label": "Happy to work 4 days in the office?", "type": "select",
+         "required": True, "sensitive": False, "options": ["Yes", "No"], "_el": None},
+    ]
+    tr = {}
+    p = bg.plan(schema, {"_custom": {"Please confirm your Right to Work status": "Yes",
+                                     "Happy to work 4 days in the office?": "Yes"}}, context="", trace=tr)
+    check("a matching answer is used", p.get("sel:office", {}).get("answer") == "Yes")
+    # asked to map "Yes" onto a Right-to-Work select, a model picked "no sponsorship needed"
+    # for a candidate who needs it — a false statement on a real application.
+    check("a SENSITIVE answer is never remapped by the model",
+          "sel:rtw" not in p and "Please confirm your Right to Work status" not in (tr.get("sent_to_model") or []))
+    check("it is reported as the candidate's to answer",
+          "Please confirm your Right to Work status" in (tr.get("withheld_sensitive") or []))
+
+
 def test_dead_feed_is_not_silent():
     section("Job sources · a DEAD feed must not masquerade as 'no openings'")
     import ats
@@ -642,7 +686,8 @@ def main():
               test_never_submits_without_resume, test_consent_prefers_rejecting,
               test_opening_a_posting_is_not_an_application,
               test_answers_can_be_saved_and_reused, test_navigates_to_the_real_form,
-              test_board_agents_plan_then_fill, test_nav_is_identical_everywhere, test_activity_actions_actually_work, test_decision_trace_is_recorded):
+              test_board_agents_plan_then_fill, test_nav_is_identical_everywhere, test_activity_actions_actually_work, test_decision_trace_is_recorded,
+              test_option_matching_is_precise):
         try:
             t()
         except Exception as e:

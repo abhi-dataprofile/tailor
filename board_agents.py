@@ -257,6 +257,12 @@ def extract(frame):
         except Exception:
             continue
 
+    # A React combobox is an <input> with a listbox, so the same control is picked up twice —
+    # once as "combo", once as plain "text". Filling the combo then left its twin looking
+    # unanswered, which is why fields showed as BOTH filled and still-missing.
+    combos = {f["label"].lower() for f in out if f["type"] == "combo"}
+    out = [f for f in out if not (f["type"] in ("text", "textarea", "date")
+                                  and f["label"].lower() in combos)]
     return out
 
 
@@ -295,6 +301,26 @@ def plan(schema, bank, context="", extra_prompt="", trace=None):
         if f["required"]:
             ask.append(f)
 
+    # A saved answer that matches NO option is useless to the form: "Yes" against a Right-to-
+    # Work select whose choices are full sentences fills nothing, and the field silently stays
+    # blank. Hand those to the model WITH the real options and the answer as a hint, so it can
+    # pick the option the candidate actually meant.
+    for f in schema:
+        if not f["options"] or f["key"] not in out:
+            continue
+        chosen = out[f["key"]]["answer"]
+        if ab._opt_match(chosen, f["options"]) is not None:
+            continue
+        if f["sensitive"]:
+            # NEVER let the model reinterpret a legal or compensation answer. Asked to map
+            # "Yes" onto a Right-to-Work select, it chose "I have the right to work without
+            # sponsorship" for a candidate who needs sponsorship — a false statement on a real
+            # application. The candidate picks from the real options themselves.
+            del out[f["key"]]
+            continue
+        ask.append({**f, "_hint": chosen})
+        del out[f["key"]]
+
     if trace is not None:
         trace["answered_from_profile"] = {f["key"]: out[f["key"]] for f in schema if f["key"] in out}
         trace["sent_to_model"] = [f["label"] for f in ask]
@@ -302,8 +328,14 @@ def plan(schema, bank, context="", extra_prompt="", trace=None):
                                        if f["sensitive"] and f["key"] not in out]
         trace["left_to_human"] = [f["label"] for f in schema if f["type"] == "consent"]
     if ask and context:
-        fields = [{"label": f["label"], "options": f["options"]} if f["options"]
-                  else {"label": f["label"]} for f in ask]
+        fields = []
+        for f in ask:
+            q = {"label": f["label"]}
+            if f["options"]:
+                q["choose_one_of"] = f["options"][:14]
+            if f.get("_hint"):
+                q["candidate_said"] = f["_hint"]      # map their words onto a real option
+            fields.append(q)
         llm_trace = {} if trace is not None else None
         answered = ab._llm_answer_fields(context, fields, extra_prompt, trace=llm_trace) or {}
         if trace is not None:

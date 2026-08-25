@@ -742,7 +742,22 @@ def _fill_combobox(page, el, value):
                 t = (o.inner_text() or "").strip().lower()
                 if t and (vl[:14] in t or t[:14] in vl or _country_eq(vl, t)):
                     pick = o; break
-            pick = pick or opts[0]
+            if pick is None:
+                # Never settle for "whatever came first". Typing "Buffalo" into a places
+                # autocomplete and taking the top suggestion put "Buffalo City, Eastern Cape,
+                # South Africa" into a real application. A wrong answer is worse than a blank
+                # one — leave it empty so it is reported as needing the candidate.
+                first = ""
+                try:
+                    first = (opts[0].inner_text() or "").strip()
+                except Exception:
+                    pass
+                print(f"  [combo] no suggestion matched {v!r} (top was {first[:40]!r}) — left blank")
+                try:
+                    el.fill("")
+                except Exception:
+                    pass
+                return False
             pick.click(); page.wait_for_timeout(200)
             return True
         # no popup rendered — fall back to keyboard selection of the first suggestion

@@ -505,9 +505,14 @@ def test_nav_is_identical_everywhere():
           "text-overflow:ellipsis" not in dash.split(".top-right .stat{", 1)[1][:120] and
           "text-overflow:ellipsis" not in idx.split(".top-actions .mstat{", 1)[1][:120])
     # a fixed 1180px shell left ~700px of empty margin on a wide display
+    # One shell width, defined once. Hard-coded 1120px/820px containers made the layout jump
+    # between dashboard, find-jobs and the review queue — the "everything keeps changing"
+    # feeling while navigating.
     for name, src in (("index.html", idx), ("dashboard.html", dash)):
-        check(f"{name}: the shell uses the screen instead of a fixed narrow column",
-              "min(1700px, 96vw)" in src)
+        check(f"{name}: the shell width is defined once as --shell",
+              "--shell:min(1700px,96vw)" in src)
+        stray = _re.findall(r"max-width:(?:8[2-9]\d|9\d\d|1[01]\d\d)px;margin:0 auto", src)
+        check(f"{name}: no view uses its own hard-coded shell width", not stray, str(stray[:3]))
 
     # I broke both pages twice by appending before the FIRST </body>, which lives inside a JS
     # string literal ("<html><body>…</body></html>"). Scripts must go before the LAST one.

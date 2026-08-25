@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
-:root{
+:root{--shell:min(1700px,96vw);
   --bg:#f6f6f2;--card:#ffffff;--ink:#1a2420;--ink-soft:#5c6560;--ink-faint:#9aa39c;
   --line:#e8e8e1;--line-soft:#f0f0ea;
   --green:#16302321;--primary:#183527;--primary-deep:#0f241a;--primary-soft:#e7f0ea;--primary-tint:#2f6a4a;
@@ -23,7 +23,7 @@ body{background:var(--bg);color:var(--ink);font:15px/1.55 "Inter",system-ui,sans
 h1,h2,h3{font-family:"Fraunces","Inter",serif;font-weight:600;letter-spacing:-.01em;margin:0}
 svg.ic{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:0 0 auto;vertical-align:-2px}
 .top{position:sticky;top:0;z-index:50;background:rgba(246,246,242,.82);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
-.top-in{max-width:min(1700px, 96vw);margin:0 auto;padding:12px 22px;display:flex;align-items:center;gap:14px;flex-wrap:nowrap}
+.top-in{max-width:var(--shell);margin:0 auto;padding:12px 22px;display:flex;align-items:center;gap:14px;flex-wrap:nowrap}
 .mark{font:700 20px "Fraunces",serif;letter-spacing:-.02em;color:var(--ink)}
 .mark em{font-style:normal;color:#1a2420;padding:0 5px;border-radius:4px;display:inline-block;transform:rotate(-2.4deg);background:linear-gradient(95deg,rgba(242,200,75,0) 0%,var(--marker) 22%,#f6d873 50%,var(--marker) 78%,rgba(242,200,75,0) 100%)}
 /* The nav keeps its width; the status pills on the right absorb any squeeze. Without this
@@ -45,7 +45,7 @@ svg.ic{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.8;str
 .stat.asp.on{background:#fdecec;border-color:#e2a3a3;color:#b0304a}
 .stat.asp.on .dot{background:#d23b57;box-shadow:0 0 0 3px rgba(210,59,87,.18)}
 .stat .dot{width:7px;height:7px;border-radius:50%;background:var(--exc-ring)}
-.wrap{max-width:min(1700px, 96vw);margin:0 auto;padding:24px 28px 70px}
+.wrap{max-width:var(--shell);margin:0 auto;padding:24px 28px 70px}
 .view{display:none}.view.on{display:block;animation:fade .2s ease}
 @keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1}}
 .filters{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:20px}

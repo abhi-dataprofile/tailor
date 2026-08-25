@@ -46,10 +46,52 @@ TAX = {
 _ALL_SKILLS = sorted({s for v in TAX.values() for s in v}, key=len, reverse=True)
 _SKILL_RE = {s: re.compile(r"(?<![a-z0-9+#.])" + re.escape(s) + r"(?![a-z0-9+#])", re.I) for s in _ALL_SKILLS}
 
+# Skills whose name is also an ordinary English word or a bare letter. Matching these on the
+# word alone tagged "business and individual growth GO hand-in-hand" as the Go language, and
+# put ['go','s3'] on clinical, legal and sales postings — which then scored as matches for any
+# engineer. They only count with real technical context around them.
+_AMBIGUOUS = {"go", "r", "c", "d", "swift", "rust", "scala", "julia", "dart", "elm", "nim",
+              "spark", "hive", "pig", "flow", "storm", "beam", "ray", "chef", "puppet", "pandas"}
+_TECH_NEAR = (r"(?:lang|golang|programming|develop\w*|engineer\w*|backend|back-end|micro-?service"
+              r"|codebase|scripting|framework|library|runtime|stack|proficien\w*|experience with"
+              r"|written in|fluent in|python|java|typescript|javascript|kotlin|ruby|c\+\+|sql"
+              r"|kubernetes|docker|terraform|aws|gcp|azure)")
+
+def _ambiguous_ok(skill, low):
+    """True only when an ambiguous token is used as a technology: golang/'R programming', or
+    sitting in a delimited list beside other tech ('Python, Go, Rust')."""
+    if skill == "go" and re.search(r"\bgolang\b", low):
+        return True
+    esc = re.escape(skill)
+    near = rf"(?<![a-z0-9+#.]){esc}(?![a-z0-9+#])"
+    for m in re.finditer(near, low, re.I):
+        window = low[max(0, m.start() - 70): m.end() + 70]
+        if re.search(_TECH_NEAR, window, re.I):
+            return True
+        # a comma/slash/pipe list of technologies: ", Go," / "Python/Go" / "· Go ·"
+        around = low[max(0, m.start() - 3): m.end() + 3]
+        if re.search(r"[,/|·•]\s*" + esc + r"\s*[,/|·•]", around, re.I):
+            return True
+    return False
+
+# the same technology written two ways must score as ONE skill, or a job tagged "golang"
+# looks like a non-match for a candidate who wrote "Go" (and vice versa).
+_ALIAS = {"golang": "go", "nodejs": "node.js", "nextjs": "next.js", "k8s": "kubernetes",
+          "llms": "llm", "retrieval augmented generation": "rag",
+          "google cloud": "gcp", "rest api": "rest"}
+
 def extract_skills(text, limit=40):
     """Established skills/tools named in the text (taxonomy-matched)."""
     low = (text or "").lower()
-    out = [s for s in _ALL_SKILLS if _SKILL_RE[s].search(low)]
+    out, seen = [], set()
+    for s in _ALL_SKILLS:
+        if not _SKILL_RE[s].search(low):
+            continue
+        if s in _AMBIGUOUS and not _ambiguous_ok(s, low):
+            continue
+        s = _ALIAS.get(s, s)
+        if s not in seen:
+            seen.add(s); out.append(s)
     return out[:limit]
 
 # ---- visa-scoped sponsorship signal: 'yes' | 'no' | 'unknown' ----

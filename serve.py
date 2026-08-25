@@ -525,10 +525,31 @@ def _profile(user="local"):
     rows = sb.select("profiles", {"user_id": f"eq.{user}", "select": "skills,title,memory,name,email"})
     return rows[0] if rows else {"skills": [], "title": "", "memory": {}}
 
-def _score(job, myskills):
+_TITLE_STOP = {"senior", "staff", "principal", "lead", "junior", "associate", "the", "and", "of",
+               "a", "an", "for", "to", "in", "at", "i", "ii", "iii", "iv", "sr", "jr", "new", "grad"}
+
+def _title_words(t):
+    return {w for w in re.findall(r"[a-z+#.]{2,}", (t or "").lower()) if w not in _TITLE_STOP}
+
+def _score(job, myskills, mytitle=""):
+    """How well this job matches the candidate: skill overlap PLUS title relevance.
+
+    Skill tags alone were too sparse to rank with — most postings surface two or three, so
+    everything collapsed onto the same few values and 'Top matches' was effectively unsorted.
+    The title is the strongest single signal of whether a role is even the right kind of job,
+    so it carries real weight here."""
     js = set((s or "").lower() for s in (job.get("skills") or []))
-    sc = min(92, len(js & myskills) * 13)                       # absolute skill overlap
+    overlap = len(js & myskills)
+    sc = min(70, overlap * 12)                                  # skills: up to 70
     t = (job.get("title") or "").lower()
+    tw, mw = _title_words(t), _title_words(mytitle)
+    if mw:
+        shared = tw & mw
+        if shared:                                              # title agreement: up to 30
+            sc += min(30, int(30 * len(shared) / max(1, len(mw))))
+    # a title naming one of the candidate's own skills is a strong signal on its own
+    if myskills & {w for w in tw}:
+        sc += 8
     if re.search(r"\b(assistant|recruiter|coordinator|counsel|attorney|accountant|payroll|bookkeeper|receptionist)\b", t):
         sc = min(sc, 18)                                        # de-rank clearly non-technical roles
     return max(5, min(100, sc))
@@ -696,7 +717,7 @@ def jobs_query(qs, user="local"):
     myskills = set((s or "").lower() for s in (prof.get("skills") or []))
     blocked_co, manual_co = _apply_signals(user)
     for j in pool:
-        j["score"] = _score(j, myskills)
+        j["score"] = _score(j, myskills, prof.get("title") or "")
         j["status"] = states.get(j["id"], "new")
         j["applyability"] = _applyability(j.get("vendor"), j.get("company_slug"), blocked_co, manual_co)
     if only == "auto":                                  # "only suggest jobs we can do end-to-end"

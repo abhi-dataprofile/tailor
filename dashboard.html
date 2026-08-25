@@ -158,6 +158,8 @@ a{color:var(--primary-tint)}
 .draft .row{display:flex;gap:8px;margin-top:9px;align-items:center}
 .charc{font:600 11px "JetBrains Mono";color:var(--ink-faint);margin-left:auto}
 @media(max-width:640px){.nav{display:none}}
+.rq-badge{display:inline-block;min-width:17px;padding:0 5px;margin-left:6px;border-radius:9px;
+  background:var(--accent,#1f6f4f);color:#fff;font:600 11px/17px ui-sans-serif,system-ui;text-align:center}
 </style>
 </head>
 <body>
@@ -169,6 +171,7 @@ a{color:var(--primary-tint)}
     <button onclick="location.href='index.html?find=1'">Find jobs</button>
     <button onclick="location.href='index.html'">Workbench</button>
     <button onclick="location.href='index.html?profile=1'">Profile</button>
+    <button onclick="showReviewQueue()">Review queue<span id="rqNav" class="rq-badge" style="display:none"></span></button>
     <button data-view="agent" onclick="showView('agent')">Agent</button>
     <button data-view="net" onclick="showView('net')">Networking</button>
   </nav>
@@ -468,6 +471,7 @@ async function loadActivity(){
     $("actTabs").innerHTML="";return;
   }
   ACT=d.applications||[];window._actCounts=d.counts||{};renderActivity();
+  if(window.refreshRqBadge)refreshRqBadge();
 }
 function renderActivity(){
   const c=window._actCounts||{},total=ACT.length;
@@ -537,9 +541,9 @@ function hydrateShots(){document.querySelectorAll("#actList img[data-shot]").for
 function activityActions(a){
   const open=a.url?`<a class="btn ghost" style="padding:6px 11px" href="${esc(a.url)}" target="_blank" rel="noopener">Open form ↗</a>`:"";
   const rz=a.has_resume?`<button class="btn ghost" style="padding:6px 11px" onclick="viewActivityResume(${a.job_id})" title="The exact résumé saved for this application">📄 résumé</button>`:"";
+  const pdf=`<a class="btn" style="padding:6px 11px" href="/api/resume-pdf?job=${encodeURIComponent(a.job_id)}" title="The exact PDF the agent attached — download it to apply by hand">résumé PDF ↓</a>`;
   if(a.status==="awaiting_review")return `<button class="btn accent" style="padding:6px 11px" onclick="submitReviewed(${a.job_id},this)" title="Send this prepared application now">Submit ↗</button>`+rz+open;
   if(a.status==="blocked_captcha")return `<a class="btn accent" style="padding:6px 11px" href="${esc(a.url)}" target="_blank" rel="noopener">Solve captcha ↗</a>`+pdf+rz+open;
-  const pdf=`<a class="btn" style="padding:6px 11px" href="/api/resume-pdf?job=${encodeURIComponent(a.job_id)}" title="The exact PDF the agent attached — download it to apply by hand">résumé PDF ↓</a>`;
   if(a.status==="needs_you")return `<button class="btn" style="padding:6px 11px" onclick='openAnswers(${JSON.stringify(String(a.job_id))},${JSON.stringify(JSON.stringify(a.unfilled_q&&a.unfilled_q.length?a.unfilled_q:(a.unfilled||[])))})' title="Answer what the agent couldn't, and it will reuse your answers everywhere">Add answers</button>`+pdf+rz+open;
   if(a.status==="submitted_unconfirmed")return `<button class="btn" style="padding:6px 11px" onclick="markApplied(${a.job_id})" title="Confirm you received an application acknowledgement">Mark applied ✓</button>`+rz+open;
   return rz+open;
@@ -938,6 +942,22 @@ async function saveAnswers(){
   btn.disabled=false;btn.textContent="Save answers";
 }
 window.openAnswers=openAnswers;window.closeAnswers=closeAnswers;window.saveAnswers=saveAnswers;
+
+/* Review queue is the same thing on both pages: applications the agent prepared and left for
+   you to send. The workbench opens it as a modal; here it is a tab of the activity feed, so
+   the nav entry focuses that tab instead of inventing a second UI for the same data. */
+function showReviewQueue(){
+  showView("dash");
+  ACT_TAB="awaiting_review";renderActivity();
+  const el=document.getElementById("actList");
+  if(el)el.scrollIntoView({behavior:"smooth",block:"start"});
+}
+function refreshRqBadge(){
+  const n=(window._actCounts||{}).awaiting_review||0;
+  const b=document.getElementById("rqNav");
+  if(b){b.textContent=n;b.style.display=n?"inline-block":"none";}
+}
+window.showReviewQueue=showReviewQueue;window.refreshRqBadge=refreshRqBadge;
 </script>
 </body>
 </html>

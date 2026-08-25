@@ -344,6 +344,16 @@ def test_answers_can_be_saved_and_reused():
           "sb.upsert(\"profiles\"" in blk)
     check("reports failure when nothing was written", "couldn't write to your profile" in blk)
     check("known labels become real standing keys", "_STANDING_KEY" in blk)
+    # the dialog must live in the real document, not inside a JS string literal — appending
+    # before the FIRST </body> injected it into "<html><body>Resume</body></html>" and dumped
+    # the rest of the script onto the page as text.
+    check("the dialog sits before the FINAL </body>, not an earlier one in a JS string",
+          dash.rindex('id="ansModal"') < dash.rindex("</body>"))
+    check("the résumé-fallback string literal is intact",
+          'return "<html><body>Resume</body></html>";' in dash)
+    check("script tags are balanced",
+          dash.count("<script") == dash.count("</script>"),
+          f'{dash.count("<script")} open / {dash.count("</script>")} close')
     check("'Add answers' opens a dialog, not a dead link",
           "openAnswers(" in dash and 'href="index.html#profile">Add answers' not in dash)
     check("the feed carries the questions AND their options",

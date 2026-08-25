@@ -490,6 +490,16 @@ def test_nav_is_identical_everywhere():
         check(f"{name} has no hand-written nav items", not hand,
               f"{len(hand)} nav(s) still hard-coded")
     check("both render on load", "renderNav(" in idx and "renderNav(" in dash)
+    # The status pills on the right compressed the nav until labels broke mid-word
+    # ("Find / jobs", "Review / queue") on dashboard, agent and networking.
+    check("nav labels never wrap mid-word",
+          "white-space:nowrap" in dash.split(".nav button{", 1)[1][:220] and
+          "white-space:nowrap" in idx.split(".pnav a,.pnav button{", 1)[1][:260])
+    check("the nav holds its width; the right-hand cluster absorbs the squeeze",
+          "flex:0 0 auto" in dash.split(".nav{", 1)[1][:120] and
+          "flex:0 1 auto" in dash.split(".top-right{", 1)[1][:160])
+    check("informational pills hide before the nav is allowed to suffer",
+          "#planStat,#srcStat{display:none" in dash)
 
     # I broke both pages twice by appending before the FIRST </body>, which lives inside a JS
     # string literal ("<html><body>…</body></html>"). Scripts must go before the LAST one.

@@ -23,14 +23,21 @@ body{background:var(--bg);color:var(--ink);font:15px/1.55 "Inter",system-ui,sans
 h1,h2,h3{font-family:"Fraunces","Inter",serif;font-weight:600;letter-spacing:-.01em;margin:0}
 svg.ic{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:0 0 auto;vertical-align:-2px}
 .top{position:sticky;top:0;z-index:50;background:rgba(246,246,242,.82);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
-.top-in{max-width:1180px;margin:0 auto;padding:12px 22px;display:flex;align-items:center;gap:14px}
+.top-in{max-width:1180px;margin:0 auto;padding:12px 22px;display:flex;align-items:center;gap:14px;flex-wrap:nowrap}
 .mark{font:700 20px "Fraunces",serif;letter-spacing:-.02em;color:var(--ink)}
 .mark em{font-style:normal;color:#1a2420;padding:0 5px;border-radius:4px;display:inline-block;transform:rotate(-2.4deg);background:linear-gradient(95deg,rgba(242,200,75,0) 0%,var(--marker) 22%,#f6d873 50%,var(--marker) 78%,rgba(242,200,75,0) 100%)}
-.nav{display:flex;gap:2px;margin-left:10px}
-.nav button{border:none;background:transparent;color:var(--ink-soft);font:600 13px "Inter";padding:7px 13px;border-radius:100px;cursor:pointer}
+/* The nav keeps its width; the status pills on the right absorb any squeeze. Without this
+   the right-hand cluster compressed the nav until labels broke mid-word ("Find / jobs",
+   "Review / queue") on the dashboard, agent and networking views. */
+.nav{display:flex;gap:2px;margin-left:10px;flex:0 0 auto}
+.nav button{border:none;background:transparent;color:var(--ink-soft);font:600 13px "Inter";padding:7px 13px;border-radius:100px;cursor:pointer;white-space:nowrap}
 .nav button.on{background:var(--primary-soft);color:var(--primary-tint)}
 .nav button:hover{color:var(--ink)}
-.top-right{margin-left:auto;display:flex;gap:10px;align-items:center}
+.top-right{margin-left:auto;display:flex;gap:10px;align-items:center;flex:0 1 auto;min-width:0;justify-content:flex-end}
+.top-right .stat{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* below ~1180px drop the informational pills before the nav is allowed to suffer */
+@media(max-width:1180px){#planStat,#srcStat{display:none !important}}
+@media(max-width:1000px){.top-right .btn{padding:7px 11px}}
 .stat{font:600 11px "JetBrains Mono";color:var(--ink-soft);background:#fff;border:1px solid var(--line);border-radius:100px;padding:5px 11px;display:inline-flex;gap:6px;align-items:center}
 .stat.asp{cursor:pointer;transition:all .13s}
 .stat.asp:hover{border-color:var(--ink-soft)}

@@ -609,7 +609,7 @@ function activityActions(a){
      "draft" / Not applied yet) listed its unanswered questions with no way to answer them.
      The button belongs wherever there ARE questions, whatever the status. */
   const qs = (a.unfilled_q&&a.unfilled_q.length) ? a.unfilled_q : (a.unfilled||[]);
-  const ans = qs.length ? `<button class="btn" style="padding:6px 11px" onclick='openAnswers(${JSON.stringify(String(a.job_id))},${JSON.stringify(JSON.stringify(qs))})' title="Answer what the agent couldn't, and it will reuse your answers everywhere">Add answers</button>` : "";
+  const ans = qs.length ? `<button class="btn" style="padding:6px 11px" onclick='openAnswers(${JSON.stringify(String(a.job_id))},${JSON.stringify(JSON.stringify(qs))},${JSON.stringify(String(a.url||""))})' title="Answer what the agent couldn't, and it will reuse your answers everywhere">Add answers</button>` : "";
   if(a.status==="awaiting_review")return `<button class="btn accent" style="padding:6px 11px" onclick="submitReviewed(${a.job_id},this)" title="Send this prepared application now">Submit ↗</button>`+rz+open;
   if(a.status==="blocked_captcha")return `<a class="btn accent" style="padding:6px 11px" href="${esc(a.url)}" target="_blank" rel="noopener">Solve captcha ↗</a>`+ans+pdf+rz+open;
   if(a.status==="needs_you")return `<button class="btn" style="padding:6px 11px" onclick='openAnswers(${JSON.stringify(String(a.job_id))},${JSON.stringify(JSON.stringify(a.unfilled_q&&a.unfilled_q.length?a.unfilled_q:(a.unfilled||[])))})' title="Answer what the agent couldn't, and it will reuse your answers everywhere">Add answers</button>`+pdf+rz+open;
@@ -982,9 +982,9 @@ syncLocalToServer().then(loadActivity);
   </div>
 </div>
 <script>
-let ANS_JOB=null;
-function openAnswers(jobId,unfilledJson){
-  ANS_JOB=jobId;
+let ANS_JOB=null, ANS_URL="";
+function openAnswers(jobId,unfilledJson,jobUrl){
+  ANS_JOB=jobId; ANS_URL=jobUrl||"";
   let qs=[];try{qs=JSON.parse(unfilledJson||"[]")||[]}catch(e){qs=[]}
   const list=document.getElementById("ansList");
   if(!qs.length){list.innerHTML='<div class="sub">No specific questions were recorded — open the form to see what it needs.</div>';}
@@ -1014,7 +1014,22 @@ async function saveAnswers(){
   try{
     const r=await fetch("/api/answers",{method:"POST",headers:{"Content-Type":"application/json",...authHeaders()},
       body:JSON.stringify({job_id:ANS_JOB,answers})}).then(x=>x.json());
-    if(r.ok){toast(`Saved ${r.saved} answer(s) — the agent will reuse them`);closeAnswers();loadActivity();}
+    if(r.ok){
+      closeAnswers();
+      /* Answering and then having to click Auto again is a pointless second step — the whole
+         reason you answered is to finish this application. Re-run it straight away.
+         isLive() is respected: with Auto-submit ON this retry SUBMITS, so the toast says so
+         rather than letting a real application go out unannounced. */
+      if(ANS_URL){
+        toast(isLive()
+          ? `Saved ${r.saved} — re-running now, and Auto-submit is ON so it will send`
+          : `Saved ${r.saved} — re-running now to fill the rest`);
+        await autoApply(ANS_URL,null);
+      } else {
+        toast(`Saved ${r.saved} answer(s) — the agent will reuse them`);
+      }
+      loadActivity();
+    }
     else toast(r.detail||"Couldn't save");
   }catch(e){toast("Couldn't save — "+e.message)}
   btn.disabled=false;btn.textContent="Save answers";

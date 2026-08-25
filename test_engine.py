@@ -553,6 +553,16 @@ def test_activity_actions_actually_work():
     check("a draft/prepared row gets it too", "return ans+" in fn)
     check("so does a captcha row", "`+ans+pdf+rz+open;" in fn)
 
+    # answering and then having to click Auto again is a pointless second step
+    sv = dash.split("async function saveAnswers", 1)[1][:1600]
+    check("saving answers re-runs that application", "autoApply(ANS_URL" in sv)
+    check("the job URL is carried into the dialog",
+          "function openAnswers(jobId,unfilledJson,jobUrl)" in dash and
+          dash.count('openAnswers(${JSON.stringify(String(a.job_id))}') >= 2)
+    # with Auto-submit ON the retry SENDS — that must never be silent
+    check("the retry respects the live/fill setting", "isLive()" in sv)
+    check("and says so when it will actually submit", "Auto-submit is ON so it will send" in sv)
+
     check("the dashboard defines the modal styles it uses",
           ".modal{" in dash and ".modal-card{" in dash)
     check("the dialog is a real overlay", "position:fixed" in dash.split(".modal{", 1)[1][:90])

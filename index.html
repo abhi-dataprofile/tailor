@@ -903,7 +903,11 @@ code{background:var(--card-3);color:#2f6a4a}
 </style>
 <div id="rqModal" style="display:none;position:fixed;inset:0;z-index:210;background:var(--paper,#f6f6f2);overflow-y:auto">
   <div style="position:sticky;top:0;z-index:3;background:var(--paper,#f6f6f2);border-bottom:1px solid var(--line);backdrop-filter:blur(6px)">
-    <div style="max-width:820px;margin:0 auto;padding:16px 20px;display:flex;align-items:center;gap:14px">
+    <div style="max-width:1120px;margin:0 auto;padding:10px 20px 0;display:flex;align-items:center;gap:18px">
+      <div class="brand"><span class="mark">Tail<em>or</em></span></div>
+      <nav class="pnav"></nav>
+    </div>
+    <div style="max-width:820px;margin:0 auto;padding:10px 20px 16px;display:flex;align-items:center;gap:14px">
       <h2 style="margin:0;font:700 20px 'Fraunces',serif">Review queue</h2>
       <span class="hint" style="font-size:12.5px">Prepared by the agent — review, then submit. Sensitive answers are yours.</span>
       <div style="margin-left:auto;display:flex;gap:8px"><button class="btn sm" onclick="loadReviewQueue()">↻ Refresh</button><button class="btn sm" onclick="closeReviewQueue()">Close ✕</button></div>
@@ -3944,8 +3948,9 @@ const AUTH={cfg:null,sess:null,email:""};
 function signedIn(){return !!(AUTH.sess&&AUTH.sess.access_token);}
 function authHeaders(){return signedIn()?{"Authorization":"Bearer "+AUTH.sess.access_token}:{};}
 /* ---- Review queue (mirrors the dashboard): prepared applications to review + submit ---- */
-function openReviewQueue(){const m=$("rqModal");if(m){m.style.display="block";document.body.style.overflow="hidden";window.scrollTo(0,0);}loadReviewQueue();}
-function closeReviewQueue(){const m=$("rqModal");if(m)m.style.display="none";document.body.style.overflow="";}
+function openReviewQueue(){if(window.renderNav)renderNav("review");const m=$("rqModal");if(m){m.style.display="block";document.body.style.overflow="hidden";window.scrollTo(0,0);}loadReviewQueue();}
+function closeReviewQueue(){
+  if(window.renderNav)renderNav(document.getElementById("v-profile")&&document.getElementById("v-profile").classList.contains("on")?"profile":"wb");const m=$("rqModal");if(m)m.style.display="none";document.body.style.overflow="";}
 async function loadReviewQueue(){
   const body=$("rqBody");if(body)body.innerHTML='<div class="empty"><span class="spin dark"></span> Loading…</div>';
   let d;try{d=await fetch("/api/applications",{headers:authHeaders()}).then(x=>x.json());}catch(e){d=null;}
@@ -4228,6 +4233,12 @@ function renderNav(active){
 }
 
 function navGo(id){
+  /* Full-screen views (Review queue, Find, System) sit above the page, so a nav click has to
+     dismiss whatever is open — otherwise the click looks like it did nothing. */
+  ["closeReviewQueue","closeSystem","closeSettings"].forEach(fn=>{
+    if(id!=="review" && typeof window[fn]==="function"){try{window[fn]()}catch(e){}}
+  });
+  if(id!=="find" && typeof closeFind==="function"){try{closeFind()}catch(e){}}
   if(id==="dash")   return location.href="dashboard.html";
   if(id==="agent")  return location.href="dashboard.html#agent";
   if(id==="net")    return location.href="dashboard.html#net";

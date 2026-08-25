@@ -983,6 +983,16 @@ def application_detail(user, job_id):
             "has_resume": bool(a.get("job_id"))}
 
 class H(SimpleHTTPRequestHandler):
+    def end_headers(self):
+        # The app's HTML *is* its JavaScript, so a cached page silently runs old code —
+        # which has repeatedly looked like "the fix didn't work" when the fix was fine and
+        # the browser was serving yesterday's file. Never cache the app shell.
+        p = urllib.parse.urlparse(self.path).path
+        if p.endswith((".html", ".js", "/")) or p == "":
+            self.send_header("Cache-Control", "no-store, must-revalidate")
+            self.send_header("Pragma", "no-cache")
+        SimpleHTTPRequestHandler.end_headers(self)
+
     def _json(self, code, obj):
         data = json.dumps(obj).encode()
         self.send_response(code)

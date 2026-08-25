@@ -674,6 +674,36 @@ def test_option_matching_is_precise():
           "Please confirm your Right to Work status" in (tr.get("withheld_sensitive") or []))
 
 
+def test_hosted_model_and_saved_answers_are_actually_used():
+    section("The two silent failures behind \"why isn't it smarter?\"")
+    import llm, apply_browser as ab, os as _os
+    root = _os.path.dirname(_os.path.abspath(__file__))
+    srv = open(_os.path.join(root, "serve.py")).read()
+
+    # .env documents CLAUDE_API_KEY; llm.py only read ANTHROPIC_API_KEY. A configured hosted
+    # key was ignored and every call fell back to the small local model.
+    src = open(_os.path.join(root, "llm.py")).read()
+    check("a Claude key is read under either name",
+          '_env("ANTHROPIC_API_KEY") or _env("CLAUDE_API_KEY")' in src)
+    check("the default model is a current one", "claude-sonnet-5" in src)
+
+    # a model told never to invent answers "Not specified in the provided material" — which
+    # would then be typed into the form
+    for bad in ("Not specified in the provided material", "N/A", "Unknown", "I don't know",
+                "cannot be determined", ""):
+        check(f"non-answer dropped: {bad or '(empty)'}", ab._is_refusal(bad))
+    for good in ("San Jose, CA", "Yes", "2 weeks", "150000"):
+        check(f"real answer kept: {good}", not ab._is_refusal(good))
+
+    # "Add answers" writes to the database; the agent was only given the request body, so a
+    # browser with empty localStorage sent {} and every saved answer was invisible
+    check("the agent is given the answer bank from the database",
+          '(_p.get("data") or {}).get("standing")' in srv)
+    check("verbatim _custom answers are merged, not replaced",
+          '_custom = {**(_saved.get("_custom") or {})' in srv)
+    check("derived facts are added too", "_apply._enrich_standing(_p, _standing)" in srv)
+
+
 def test_dead_feed_is_not_silent():
     section("Job sources · a DEAD feed must not masquerade as 'no openings'")
     import ats
@@ -703,7 +733,8 @@ def main():
               test_opening_a_posting_is_not_an_application,
               test_answers_can_be_saved_and_reused, test_navigates_to_the_real_form,
               test_board_agents_plan_then_fill, test_nav_is_identical_everywhere, test_activity_actions_actually_work, test_decision_trace_is_recorded,
-              test_option_matching_is_precise):
+              test_option_matching_is_precise,
+              test_hosted_model_and_saved_answers_are_actually_used):
         try:
             t()
         except Exception as e:

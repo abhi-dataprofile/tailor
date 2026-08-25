@@ -1388,6 +1388,23 @@ class H(SimpleHTTPRequestHandler):
                         _resume = resume_build.build_resume_html(_prof, {})
                 except Exception:
                     _resume = ""
+            # The answer bank lives in the DATABASE (profiles.data.standing) — that is where
+            # "Add answers" writes. Taking it only from the request body meant a browser with
+            # empty localStorage sent {}, so every answer the candidate had saved was invisible
+            # to the agent and the trace read "Answered from your profile: —".
+            _standing = dict(body.get("standing") or {})
+            try:
+                _p = (sb.select("profiles", {"user_id": f"eq.{user}", "select": "data,title,email,contact",
+                                             "limit": "1"}) or [{}])[0]
+                _saved = ((_p.get("data") or {}).get("standing") or {})
+                _custom = {**(_saved.get("_custom") or {}), **(_standing.get("_custom") or {})}
+                _standing = {**_saved, **_standing}          # the request may override
+                if _custom:
+                    _standing["_custom"] = _custom           # …but merge the verbatim answers
+                import apply as _apply
+                _standing = _apply._enrich_standing(_p, _standing)   # + city/country/school/title
+            except Exception as e:
+                print("[apply] couldn't load the saved answer bank:", str(e)[:120])
             _jobmeta = {"url": apply_url, "title": body.get("label", ""), "id": body.get("job_id")}
             try:
                 if jr:
@@ -1397,7 +1414,7 @@ class H(SimpleHTTPRequestHandler):
                 pass
             payload = json.dumps({"job": _jobmeta,
                                   "answers": body.get("answers", {}) or {},
-                                  "standing": body.get("standing", {}) or {},
+                                  "standing": _standing,
                                   "resume_html": _resume, "dry": not bool(body.get("live"))})
             try:
                 p = subprocess.run([py, "-c",

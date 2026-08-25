@@ -699,6 +699,19 @@ _SENSITIVE_RE = re.compile(
 def _strip_html(h):
     return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", h or "")).strip()
 
+# A model asked not to invent often answers with a SENTENCE meaning "I don't know" rather than
+# an empty string. Typing "Not specified in the provided material" into a Location field is
+# worse than leaving it blank, so these are treated as non-answers.
+_REFUSAL_RE = re.compile(
+    r"^\s*(n/?a|none|unknown|not\s+(specified|provided|mentioned|available|applicable|stated|"
+    r"given|listed|indicated|determined|found|present|in\s+the)|no\s+(information|data|answer)|"
+    r"cannot\s+(be\s+)?(determined|answer)|unable\s+to|i\s+(don'?t|do\s+not)\s+(know|have)|"
+    r"insufficient|the\s+material\s+does\s+not)\b", re.I)
+
+def _is_refusal(v):
+    v = str(v or "").strip()
+    return (not v) or bool(_REFUSAL_RE.match(v)) or len(v) > 400
+
 def _merge_answer_objects(raw):
     """Collect EVERY {"answers": {...}} block in the model's output and merge them.
 
@@ -760,6 +773,8 @@ def _llm_answer_fields(context, fields, extra="", trace=None):
         sysp = ("You are completing a job application AS the candidate, using ONLY the candidate "
                 "material provided. If the material does not support an answer, return an empty string "
                 "for that question — NEVER invent facts, dates, numbers, employers, or credentials. "
+                "Answer with the VALUE ONLY — never a sentence explaining that you cannot answer; "
+                "if you cannot answer, return an empty string. "
                 "FACTS (employers, dates, degrees, numbers) must come from the material. "
                 "WILLINGNESS questions are different: 'are you happy to work N days in the office', "
                 "'can you commute', 'are you willing to relocate', 'do you accept the location' are "
@@ -778,9 +793,14 @@ def _llm_answer_fields(context, fields, extra="", trace=None):
             trace.update({"provider": (llm.available() or ["?"])[0], "system_prompt": sysp,
                           "context": context[:3800], "questions": qs, "raw_response": (raw or "")[:4000]})
         merged = _merge_answer_objects(raw)
+        kept = {k: v.strip() for k, v in merged.items()
+                if isinstance(v, str) and not _is_refusal(v)}
         if trace is not None:
             trace["parsed"] = merged
-        return {k: v.strip() for k, v in merged.items() if isinstance(v, str) and v.strip()}
+            dropped = [k for k in merged if k not in kept]
+            if dropped:
+                trace["dropped_as_non_answers"] = dropped
+        return kept
     except Exception as e:
         if trace is not None:
             trace["error"] = str(e)[:200]

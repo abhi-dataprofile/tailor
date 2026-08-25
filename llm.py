@@ -19,7 +19,11 @@ def _env(k, d=""):
     return os.environ.get(k, d)
 
 PROVIDER      = _env("LLM_PROVIDER", "auto")
-CLAUDE_KEY    = _env("ANTHROPIC_API_KEY");  CLAUDE_MODEL = _env("CLAUDE_MODEL", "claude-sonnet-4-6")
+# Accept either name. .env/.env.example document CLAUDE_API_KEY while this module only read
+# ANTHROPIC_API_KEY, so a configured hosted key was silently ignored and every call fell back
+# to the small local model — which is why obvious questions came back unanswered.
+CLAUDE_KEY    = _env("ANTHROPIC_API_KEY") or _env("CLAUDE_API_KEY")
+CLAUDE_MODEL  = _env("CLAUDE_MODEL", "claude-sonnet-5")
 GEMINI_KEY    = _env("GEMINI_API_KEY");     GEMINI_MODEL = _env("GEMINI_MODEL", "gemini-2.5-flash")
 OPENAI_KEY    = _env("OPENAI_API_KEY");     OPENAI_MODEL = _env("OPENAI_MODEL", "gpt-5-mini")
 CUSTOM_URL    = _env("CUSTOM_BASE_URL", "https://openrouter.ai/api/v1")

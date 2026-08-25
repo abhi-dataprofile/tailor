@@ -318,7 +318,12 @@ def apply_one(user_id, profile, job, review=False, force_live=False):
         _record(user_id, job, {"ok": False, "status": "needs_review",
                 "detail": "Missing standing answers: " + "; ".join(blocked[:4])}, ans, apply_id, blocked)
         return "needs_review"
-    resume = resume_for(user_id, job["id"], profile, job)
+    # Build the résumé CONCURRENTLY with the browser reaching the form. Tailoring is the
+    # slowest step (~30s of LLM); the browser needs ~10-20s to navigate and read the fields.
+    # Running them in series wasted that window — the engine resolves the future at upload.
+    from concurrent.futures import ThreadPoolExecutor
+    _pool = ThreadPoolExecutor(max_workers=1)
+    resume = _pool.submit(resume_for, user_id, job["id"], profile, job)
     standing = (profile.get("data") or {}).get("standing") or {}   # answer bank for the browser engine
     standing = _enrich_standing(profile, standing)                 # + deterministic city/country/school/employer
     orch = (profile.get("data") or {}).get("orchestration") or {}
@@ -335,7 +340,13 @@ def apply_one(user_id, profile, job, review=False, force_live=False):
     if review and not force_live and res.get("status") == "dry_prepared" and not (res.get("unfilled_required") or []):
         res = {**res, "status": "awaiting_review", "ok": True,
                "detail": "Prepared and ready — review and click Submit."}
-    _record(user_id, job, res, ans, apply_id, [], resume)
+    try:
+        resume_html = resume.result(timeout=5) if hasattr(resume, "result") else (resume or "")
+    except Exception:
+        resume_html = ""
+    finally:
+        _pool.shutdown(wait=False)
+    _record(user_id, job, res, ans, apply_id, [], resume_html)
     return (res.get("backend", "?") + ":" + str(res.get("status")))
 
 def submit_reviewed(user_id, job_id):

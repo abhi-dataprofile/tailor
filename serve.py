@@ -1072,6 +1072,32 @@ class H(SimpleHTTPRequestHandler):
                 return self._json(200, application_detail(_req_user(self), jid))
             except Exception as e:
                 return self._json(200, {"ok": False, "detail": str(e)[:160]})
+        if urllib.parse.urlparse(self.path).path == "/api/resume-pdf":
+            # Serve the EXACT PDF that was attached to this application, so it can be
+            # re-downloaded and re-uploaded by hand on a board the agent couldn't finish.
+            # Falls back to rendering the stored HTML if the file is gone.
+            qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            jid = (qs.get("job") or [""])[0]
+            path = ""
+            try:
+                rows = sb.select("applications", {"user_id": f"eq.{_req_user(self)}",
+                        "job_id": f"eq.{jid}", "select": "receipt", "limit": "1"}) or []
+                path = ((rows[0].get("receipt") or {}).get("resume_pdf") or "") if rows else ""
+            except Exception:
+                path = ""
+            # never serve outside the résumé directory, whatever the stored value says
+            base = os.path.realpath(os.path.join(HERE, "applications_out", "resumes"))
+            real = os.path.realpath(path) if path else ""
+            if real and real.startswith(base + os.sep) and os.path.exists(real):
+                data = open(real, "rb").read()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/pdf")
+                self.send_header("Content-Disposition",
+                                 'attachment; filename="resume-%s.pdf"' % re.sub(r"[^A-Za-z0-9_-]", "", str(jid))[:40])
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                return self.wfile.write(data)
+            return self._json(404, {"ok": False, "detail": "no saved PDF for this application"})
         if urllib.parse.urlparse(self.path).path == "/api/application-resume":
             if not (sb and sb.is_configured()):
                 return self._json(200, {"ok": False, "status": "no_db"})

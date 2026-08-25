@@ -27,7 +27,30 @@ OUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "applications
 # (a genuine browser environment → fewer bot challenges; NOT fingerprint spoofing)
 _PROFILE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".tailor_chrome")
 
-CAPTCHA_HINTS = ["recaptcha", "hcaptcha", "g-recaptcha", "cf-turnstile", "data-sitekey", "are you human"]
+RESUME_DIR = os.path.join(OUT_DIR, "resumes")
+
+def _resolve_resume(r, timeout=90):
+    """Accept the résumé as a string OR as something still being produced (a Future, or any
+    zero-arg callable). Building it concurrently with page navigation hides most of the
+    tailoring latency; this is where the two rejoin."""
+    if r is None or isinstance(r, str):
+        return r or ""
+    try:
+        if hasattr(r, "result"):          # concurrent.futures.Future
+            return r.result(timeout=timeout) or ""
+        if callable(r):
+            return r() or ""
+    except Exception as e:
+        print("  [resume] not ready:", str(e)[:100])
+    return ""
+
+CAPTCHA_HINTS = ["recaptcha", "hcaptcha", "g-recaptcha", "cf-turnstile", "data-sitekey", "are you human",
+                 "datadome", "captcha-delivery", "perimeterx", "px-captcha", "incapsula",
+                 "verify you are human", "unusual traffic"]
+# bot-check services that render in their own iframe — the host page then looks simply "empty",
+# which reads as "no form here" unless we look at the frame URLs too.
+_CAPTCHA_HOSTS = ("captcha-delivery.com", "datadome", "hcaptcha.com", "recaptcha.net",
+                  "google.com/recaptcha", "challenges.cloudflare.com", "perimeterx.net")
 
 # Per-vendor selector packs. Forms differ a lot between ATSes (and drift over time),
 # so each vendor has its own field/submit selectors, with a generic fallback appended.
@@ -113,11 +136,6 @@ def _form_frame(page):
             continue
     return page
 
-# button/link texts that reveal or open the application form
-_APPLY_TEXTS = ["Apply for this job", "Apply for this position", "Apply now", "Apply Now",
-                "Apply online", "Apply to this job", "Start your application", "Start application",
-                "I'm interested", "Apply"]
-
 # consent-banner button text, most privacy-preserving first. We only need the form clickable —
 # there's no reason to opt the candidate into tracking to apply for a job.
 _CONSENT_TEXT = (
@@ -153,22 +171,92 @@ def _dismiss_consent(page):
                         continue
     return False
 
-def _reveal_apply(page):
-    """Click an Apply button/link to reveal the form — searching the page AND any iframes,
-    so embedded flows (iCIMS, corporate embeds) open even when there's no direct form."""
-    scopes = [page] + [fr for fr in page.frames if fr != page.main_frame]
-    for scope in scopes:
-        if scope.query_selector(_EMAIL_SEL):
-            return
-    for scope in scopes:
-        for t in _APPLY_TEXTS:
-            for sel in (f"a:has-text('{t}')", f"button:has-text('{t}')", f"[role=button]:has-text('{t}')"):
-                try:
-                    b = scope.query_selector(sel)
-                    if b and b.is_visible():
-                        b.click(); page.wait_for_timeout(2200); return
-                except Exception:
-                    continue
+def _clickable_by_text(scope, patterns):
+    """Find a visible clickable element whose own text matches one of `patterns`.
+
+    Matching happens in JS on the element's text, NOT via a CSS :has-text('...') selector —
+    an apostrophe in the label ("I'm interested", the real apply button on SmartRecruiters)
+    produces a malformed selector that throws and gets silently swallowed, which is why those
+    pages looked like they had no apply button at all."""
+    try:
+        return scope.evaluate_handle(
+            """(pats)=>{
+              const rx = pats.map(p=>new RegExp(p,'i'));
+              const els=[...document.querySelectorAll("a,button,[role=button],input[type=submit],input[type=button]")];
+              for(const r of rx){
+                for(const e of els){
+                  const t=((e.innerText||e.value||'')+'').replace(/[\\s]+/g,' ').trim();
+                  if(!t||t.length>40||!r.test(t)) continue;
+                  const b=e.getBoundingClientRect();
+                  if(b.width<2||b.height<2) continue;
+                  const st=getComputedStyle(e);
+                  if(st.visibility==='hidden'||st.display==='none') continue;
+                  return e;
+                }
+              }
+              return null;}""", patterns).as_element()
+    except Exception:
+        return None
+
+# what the "take me to the application" control is called, most specific first
+_APPLY_PATTERNS = [
+    r"^apply for this (job|position|role)", r"^apply (now|online|here)", r"^start (your )?application",
+    r"^(i'?m|i am) interested", r"^apply to this", r"^submit (an )?application", r"^continue to apply",
+    r"^apply$", r"^apply with", r"^begin application", r"^application$",
+]
+
+def _has_form(page):
+    """True once a real application form is reachable — an email field anywhere on the page
+    or in any frame."""
+    for scope in [page] + [fr for fr in page.frames if fr != page.main_frame]:
+        try:
+            if scope.query_selector(_EMAIL_SEL):
+                return True
+        except Exception:
+            continue
+    return False
+
+def _reveal_apply(page, max_steps=3):
+    """Navigate from wherever we landed to the actual application form.
+
+    A job link often lands on a description page (or a careers-site wrapper) whose apply
+    control leads to the real form — sometimes through more than one hop, sometimes in a new
+    tab. Click through up to `max_steps` of those, waiting for the form (or a navigation)
+    after each. Returns the page holding the form, which may be a NEW tab — callers must use
+    the returned page, not the one they passed in."""
+    ctx = page.context
+    for _ in range(max_steps):
+        if _has_form(page):
+            return page
+        btn = None
+        for scope in [page] + [fr for fr in page.frames if fr != page.main_frame]:
+            btn = _clickable_by_text(scope, _APPLY_PATTERNS)
+            if btn:
+                break
+        if not btn:
+            break
+        before = set(ctx.pages)
+        try:
+            btn.click(timeout=5000)
+        except Exception:
+            try:
+                btn.evaluate("e=>e.click()")     # covers overlay-intercepted clicks
+            except Exception:
+                break
+        page.wait_for_timeout(1200)
+        opened = [p for p in ctx.pages if p not in before]
+        if opened:                                # the control opened the form in a new tab
+            page = opened[-1]
+            try:
+                page.wait_for_load_state("domcontentloaded", timeout=15000)
+            except Exception:
+                pass
+        else:
+            try:                                  # or navigated / rendered in place
+                page.wait_for_selector(_EMAIL_SEL, timeout=8000)
+            except Exception:
+                page.wait_for_timeout(1200)
+    return page
 
 def _vendor_of(url):
     u = (url or "").lower()
@@ -206,20 +294,46 @@ def _fill_first(page, selectors, value):
             continue
     return False
 
-def _has_captcha(page):
-    # Only a VISIBLE challenge widget counts — many sites load the recaptcha/turnstile
-    # script defensively without ever showing a challenge. Checking raw HTML over-blocks.
-    sels = ["iframe[src*='recaptcha/api2/anchor']", "iframe[src*='recaptcha/enterprise/anchor']",
-            "iframe[src*='hcaptcha.com']", "iframe[src*='challenges.cloudflare.com']",
-            "div.g-recaptcha[data-sitekey]", ".h-captcha", "#cf-turnstile"]
-    for sel in sels:
-        try:
-            el = page.query_selector(sel)
-            if el and el.is_visible():
-                return True
-        except Exception:
-            continue
-    return False
+def _captcha_blocking(page):
+    """A CAPTCHA that is actually IN THE WAY — not merely present.
+
+    Most ATS forms (Greenhouse, Lever, Ashby) ship an invisible reCAPTCHA that sits quietly
+    beside a perfectly fillable form. Treating its presence as a block reported every working
+    board as captcha-walled. A real wall means: a visibly rendered challenge frame, or a
+    challenge with no application form anywhere to fill."""
+    big_challenge = False
+    try:
+        for fr in page.frames:
+            if not any(h in (fr.url or "").lower() for h in _CAPTCHA_HOSTS):
+                continue
+            el = fr.frame_element()
+            try:
+                if el and el.is_visible():
+                    box = el.bounding_box() or {}
+                    if (box.get("width") or 0) > 180 and (box.get("height") or 0) > 120:
+                        big_challenge = True      # an actual challenge is rendered on screen
+                        break
+            except Exception:
+                continue
+    except Exception:
+        pass
+    if big_challenge:
+        return True
+    # no form to fill anywhere + a challenge in the markup = we're walled out
+    try:
+        has_fields = bool(page.query_selector(_EMAIL_SEL)) or any(
+            fr.query_selector(_EMAIL_SEL) for fr in page.frames if fr != page.main_frame)
+    except Exception:
+        has_fields = False
+    if has_fields:
+        return False
+    try:
+        html = (page.content() or "").lower()
+    except Exception:
+        return False
+    return any(h in html for h in ("captcha-delivery", "datadome", "perimeterx", "px-captcha",
+                                   "are you human", "verify you are human", "unusual traffic",
+                                   "challenges.cloudflare.com"))
 
 def _render_pdf(context, resume_html, path):
     pg = context.new_page()
@@ -856,6 +970,12 @@ def submit(job, answers, resume_html, standing=None, dry=True, headless=True, ti
     if not url:
         return {"ok": False, "status": "error", "detail": "no apply url"}
     os.makedirs(OUT_DIR, exist_ok=True)
+    os.makedirs(RESUME_DIR, exist_ok=True)
+    # a stable path, not a temp file: the exact PDF sent with this application is kept so it
+    # can be re-downloaded and re-used, rather than vanishing with the process.
+    resume_pdf = os.path.join(RESUME_DIR, "%s-%s.pdf" % (
+        re.sub(r"[^a-z0-9]+", "-", str(job.get("company_slug") or job.get("vendor") or "job").lower())[:30],
+        re.sub(r"[^a-z0-9]+", "-", str(job.get("id") or job.get("title") or "app").lower())[:40]))
     # submission is driven by the caller (UI "Fill & submit" toggle). APPLY_DRY_ONLY=1 hard-forces dry.
     live = (not dry) and os.environ.get("APPLY_DRY_ONLY") != "1"
     # APPLY_HEADED=1 → run a VISIBLE Chrome window (watch it, or solve a captcha yourself).
@@ -883,8 +1003,11 @@ def submit(job, answers, resume_html, standing=None, dry=True, headless=True, ti
         try:
             page.goto(url, wait_until="domcontentloaded", timeout=timeout)
             page.wait_for_timeout(1500)
-            if _has_captcha(page):
-                return {"ok": False, "status": "captcha", "detail": "CAPTCHA/bot-check present — must be applied to manually."}
+            # Only a BLOCKING wall stops us here. Nearly every ATS form ships an invisible
+            # reCAPTCHA; aborting on its presence meant never even trying to reach the form.
+            if _captcha_blocking(page):
+                return {"ok": False, "status": "captcha",
+                        "detail": "This page is behind a bot-check (CAPTCHA) — open it yourself to apply."}
             # ensure the application form is on screen: many pages are a description with an
             # "Apply" button, React forms render async, and iCIMS/embeds load the form in an
             # iframe. Reveal it (searching page + frames), then wait for a field anywhere.
@@ -892,16 +1015,27 @@ def submit(job, answers, resume_html, standing=None, dry=True, headless=True, ti
             # and swallow the click on "Apply", leaving the form closed (and us reporting a
             # suspiciously empty form as if it were complete).
             _dismiss_consent(page)
-            _reveal_apply(page)
+            # navigate to the real form — this may hop pages or open a new tab, so adopt
+            # whatever page it lands on rather than staying on the description page.
+            try:
+                import board_agents
+                page = board_agents.navigate(page, _vendor_of(url))
+            except Exception:
+                page = _reveal_apply(page)
             try:
                 page.wait_for_selector(_EMAIL_SEL, timeout=9000)
             except Exception:
                 pass
             _dismiss_consent(page)         # again: some banners only appear after interaction
+            if _captcha_blocking(page):    # the wall is usually on the APPLICATION page, not the description
+                return {"ok": False, "status": "captcha", "screenshot": "",
+                        "detail": "The application page is behind a bot-check (CAPTCHA) — "
+                                  "open it yourself and complete the form."}
             # the form may live inside an embedded ATS iframe (iCIMS, corporate embeds) — from
             # here on, operate on that frame (Playwright Frame shares the query/fill API).
             frame = _form_frame(page)
             pack = _pack(frame.url if frame is not page else url)
+            pack_vendor = _vendor_of(frame.url if frame is not page else url)
             # standard fields — Lever/Ashby may use one full-name field instead of first/last
             full = (str(answers.get("first_name", "")) + " " + str(answers.get("last_name", ""))).strip()
             filled = {
@@ -922,11 +1056,14 @@ def submit(job, answers, resume_html, standing=None, dry=True, headless=True, ti
                         file_inputs.append(f)
             cover_input = next((f for f in file_inputs if "cover" in _file_ctx(f)), None)
             resume_input = next((f for f in file_inputs if f is not cover_input), None)
-            if resume_input:
-                pdf_path = os.path.join(tempfile.gettempdir(), f"resume_{int(time.time())}.pdf")
-                _render_pdf(ctx, resume_html, pdf_path)
+            # The résumé is built in PARALLEL with navigation — tailoring takes ~30s and the
+            # browser needs ~10-20s to reach the form, so waiting for it up front wasted that
+            # whole window. Resolve it here, at the one moment we actually need the bytes.
+            resume_html = _resolve_resume(resume_html)
+            if resume_input and resume_html:
+                _render_pdf(ctx, resume_html, resume_pdf)
                 try:
-                    resume_input.set_input_files(pdf_path); attached = True
+                    resume_input.set_input_files(resume_pdf); attached = True
                 except Exception:
                     attached = False
             # cover letter: upload to a dedicated file input, else fill a "cover letter" textarea
@@ -974,7 +1111,22 @@ def submit(job, answers, resume_html, standing=None, dry=True, headless=True, ti
                        + _strip_html(resume_html)[:3400]
                        + ("\nKnown facts: " + json.dumps(_facts) if _facts else "")
                        + ("\nCandidate context (assume this where a non-sensitive question is ambiguous): " + _persona if _persona else ""))
-            unfilled_required = _fill_questions(frame, _bank, context)
+            # PLAN-THEN-FILL: read every field into a schema, answer the whole form in one
+            # pass (real facts first, then a single LLM call that sees all the questions
+            # together), then apply it. Falls back to the incremental filler on any error so
+            # a planner problem can never make the agent worse than before.
+            plan_out = None
+            if os.environ.get("APPLY_PLANNER", "1") != "0":
+                try:
+                    import board_agents
+                    plan_out = board_agents.run(page, frame, pack_vendor, _bank, context,
+                                                (_bank or {}).get("_answer_prompt", ""))
+                    unfilled_required = plan_out["unfilled_required"]
+                except Exception as e:
+                    print("  [planner] falling back:", str(e)[:120])
+                    plan_out = None
+            if plan_out is None:
+                unfilled_required = _fill_questions(frame, _bank, context)
             shot = os.path.join(OUT_DIR, f"{re.sub(r'[^a-z0-9]+','-',(job.get('title') or 'job').lower())[:40]}-{int(time.time())}.png")
             page.screenshot(path=shot, full_page=True)
             # DID THE FORM ACTUALLY OPEN? A page still showing the job description (consent wall,
@@ -992,8 +1144,14 @@ def submit(job, answers, resume_html, standing=None, dry=True, headless=True, ti
             if not form_ready:
                 warnings.append("almost none of the standard fields (name/email/phone) were present")
             prepared = {"filled": filled, "resume_attached": attached, "screenshot": shot,
+                        "resume_pdf": resume_pdf if attached else "",
                         "unfilled_required": unfilled_required, "warnings": warnings,
                         "form_ready": form_ready}
+            if plan_out:                       # what the agent read, decided, and completed
+                prepared["field_plan"] = plan_out["plan"]
+                prepared["field_schema"] = plan_out["schema"]
+                prepared["filled_labels"] = plan_out["filled_labels"]
+                prepared["plan_counts"] = plan_out["counts"]
             if not form_ready:
                 return {"ok": False, "status": "form_not_ready",
                         "detail": "Never reached a real application form — " + "; ".join(warnings)
@@ -1025,7 +1183,7 @@ def submit(job, answers, resume_html, standing=None, dry=True, headless=True, ti
                 return {"ok": False, "status": "no_submit_button", "detail": "Couldn't find the submit button — apply manually.", **prepared}
             url_before = page.url
             btn.click(); page.wait_for_timeout(4000)
-            if _has_captcha(page):
+            if _captcha_blocking(page):
                 return {"ok": False, "status": "captcha", "detail": "CAPTCHA appeared on submit — manual.", **prepared}
             page.screenshot(path=shot, full_page=True)
             v = _verify(page, frame)

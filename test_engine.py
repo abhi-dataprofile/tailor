@@ -361,6 +361,114 @@ def test_answers_can_be_saved_and_reused():
     check("the receipt records which fields were filled", '"filled": [k for k, v in' in srv)
 
 
+def test_navigates_to_the_real_form():
+    section("Navigation · getting from a job page to the actual form")
+    import apply_browser as ab, re as _re, os as _os
+    src = open(_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "apply_browser.py")).read()
+    # "I'm interested" is the real apply control on SmartRecruiters; the apostrophe made
+    # a:has-text('I'm interested') malformed, so it threw and was silently swallowed.
+    pats = ab._APPLY_PATTERNS
+    def hits(label):
+        return any(_re.match(p, label, _re.I) for p in pats)
+    for label in ("I'm interested", "Apply for this job", "Apply now", "Start your application",
+                  "Apply", "Submit application"):
+        check(f"recognises {label!r} as the apply control", hits(label))
+    check("no apostrophe is ever spliced into a CSS selector",
+          ":has-text('{t}')" not in src and "_APPLY_TEXTS" not in src)
+    check("matching happens on element text in JS, not via :has-text",
+          "def _clickable_by_text" in src)
+    check("navigation is multi-step, not a single click",
+          "max_steps" in src and "for _ in range(max_steps)" in src)
+    check("a form opened in a NEW TAB is adopted",
+          "opened = [p for p in ctx.pages if p not in before]" in src)
+    check("submit() uses the page navigation landed on",
+          "page = _reveal_apply(page)" in src)
+    # DataDome & friends render in their own iframe, leaving the host page blank
+    check("iframe-rendered bot-checks are detected", "_CAPTCHA_HOSTS" in src)
+    # Greenhouse/Lever/Ashby ship an INVISIBLE reCAPTCHA next to a perfectly fillable form.
+    # Flagging its mere presence reported every working board as walled.
+    check("a blocking check exists, distinct from mere presence", "def _captcha_blocking" in src)
+    check("EVERY captcha gate is the strict one",
+          "_has_captcha" not in src and src.count("if _captcha_blocking(page):") >= 3,
+          f'{src.count("if _captcha_blocking(page):")} strict gates')
+    check("landing does not abort before trying to reach the form",
+          "open it yourself to apply" in src)
+    check("a challenge must be VISIBLE and sizable to count as a wall",
+          "bounding_box()" in src and "is_visible()" in src.split("def _captcha_blocking", 1)[1][:1600])
+    check("a page with a fillable form is never called captcha-walled",
+          "if has_fields:" in src and "return False" in src.split("if has_fields:", 1)[1][:60])
+    check("captcha is re-checked AFTER navigating to the application page",
+          src.index("page = _reveal_apply(page)") < src.index("The application page is behind a bot-check"))
+
+
+def test_board_agents_plan_then_fill():
+    section("Board agents · navigate → extract → plan → fill")
+    import board_agents as bg, os as _os
+    src = open(_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "board_agents.py")).read()
+    check("each stage is its own step", all(hasattr(bg, f) for f in ("navigate", "extract", "plan", "fill", "run")))
+    check("a router picks the agent for each board", hasattr(bg, "route") and "AGENTS" in src)
+    for url, want in [("https://job-boards.greenhouse.io/x/jobs/1", "greenhouse"),
+                      ("https://jobs.lever.co/x/y", "lever"),
+                      ("https://jobs.ashbyhq.com/x/y", "ashby"),
+                      ("https://jobs.smartrecruiters.com/X/1", "smartrecruiters"),
+                      ("https://acme.icims.com/jobs/1", "icims"),
+                      ("https://x.wd1.myworkdayjobs.com/en-US/c/job/z", "workday"),
+                      ("https://unknown.example.com/careers/1", "generic")]:
+        check(f"routes {want}", bg.route(url)["name"] == want, bg.route(url)["name"])
+    check("Workday is declared unsupported (its account wall is a line we don't cross)",
+          bg.supported("https://x.wd1.myworkdayjobs.com/en-US/c/job/z") is False)
+    check("supported boards are not falsely marked unsupported",
+          all(bg.supported(u) for u in ("https://jobs.lever.co/a/b", "https://jobs.ashbyhq.com/a/b")))
+    check("extraction fills nothing (inspection only)",
+          ".fill(" not in src.split("def extract", 1)[1].split("def to_json", 1)[0])
+    check("the schema is JSON-serialisable (no live handles)", hasattr(bg, "to_json"))
+
+    # planning: the whole form at once, with the sensitive guardrail intact
+    schema = [
+        {"key": "text:phone", "label": "Phone", "type": "text", "required": True, "options": [], "sensitive": False, "_el": None},
+        {"key": "radio:gender", "label": "Gender", "type": "radio", "required": True, "options": ["Male", "Female"], "sensitive": True, "_el": None},
+        {"key": "text:salary", "label": "Salary expectation", "type": "text", "required": True, "options": [], "sensitive": True, "_el": None},
+        {"key": "consent:arb", "label": "Arbitration Agreement", "type": "consent", "required": True, "options": [], "sensitive": False, "_el": None},
+        {"key": "combo:loc", "label": "Where are you currently located?", "type": "combo", "required": True, "options": [], "sensitive": False, "_el": None},
+    ]
+    p = bg.plan(schema, {"phone": "+1 555 010 2020", "current_location": "San Jose, CA"}, context="")
+    check("real profile facts are used", p.get("text:phone", {}).get("answer") == "+1 555 010 2020")
+    check("provenance is recorded", p.get("text:phone", {}).get("source") == "profile")
+    check("location matched from the answer bank",
+          p.get("combo:loc", {}).get("answer") == "San Jose, CA")
+    check("demographics are NEVER auto-answered", "radio:gender" not in p)
+    check("compensation is NEVER auto-answered", "text:salary" not in p)
+    check("legal agreements are left to the human", "consent:arb" not in p)
+
+    # a sensitive question IS answered when the candidate supplied it themselves
+    p2 = bg.plan(schema, {"gender": "Prefer not to say"}, context="")
+    check("a sensitive answer the candidate gave IS used",
+          p2.get("radio:gender", {}).get("answer") == "Prefer not to say")
+
+    check("the engine records the plan for inspection",
+          '"field_plan"' in open(_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "apply_browser.py")).read())
+    _ab = open(_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "apply_browser.py")).read()
+    _ap = open(_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "apply.py")).read()
+    check("the résumé is built in parallel with navigation",
+          "ThreadPoolExecutor" in _ap and "_pool.submit(resume_for" in _ap)
+    check("the engine accepts a résumé that is still being produced",
+          "def _resolve_resume" in _ab and "hasattr(r, \"result\")" in _ab)
+    check("it is resolved at the upload step, not up front",
+          _ab.index("_resolve_resume(resume_html)") > _ab.index("_reveal_apply"))
+    check("the exact PDF sent is kept, not a temp file",
+          "RESUME_DIR" in _ab and 'resume_pdf' in _ab)
+    check("the saved PDF path is reported back", '"resume_pdf"' in _ab)
+    _srv = open(_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "serve.py")).read()
+    _dash = open(_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "dashboard.html")).read()
+    check("the saved PDF can be downloaded", '"/api/resume-pdf"' in _srv)
+    check("the download is path-confined to the résumé directory",
+          "real.startswith(base + os.sep)" in _srv)
+    check("the UI offers the PDF where a human must finish by hand",
+          "/api/resume-pdf?job=" in _dash)
+    check("a planner failure falls back to the old filler",
+          "[planner] falling back" in open(_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "apply_browser.py")).read())
+
+
 def test_dead_feed_is_not_silent():
     section("Job sources · a DEAD feed must not masquerade as 'no openings'")
     import ats
@@ -388,7 +496,8 @@ def main():
               test_dead_feed_is_not_silent, test_form_not_ready_is_not_success,
               test_never_submits_without_resume, test_consent_prefers_rejecting,
               test_opening_a_posting_is_not_an_application,
-              test_answers_can_be_saved_and_reused):
+              test_answers_can_be_saved_and_reused, test_navigates_to_the_real_form,
+              test_board_agents_plan_then_fill):
         try:
             t()
         except Exception as e:

@@ -1486,7 +1486,8 @@ def submit(job, answers, resume_html, standing=None, dry=True, headless=True, ti
                 try:
                     import board_agents
                     plan_out = board_agents.run(page, frame, pack_vendor, _bank, context,
-                                                (_bank or {}).get("_answer_prompt", ""))
+                                                (_bank or {}).get("_answer_prompt", ""),
+                                                episodes=(_bank or {}).get("_episodes") or [])
                     unfilled_required = plan_out["unfilled_required"]
                 except Exception as e:
                     print("  [planner] falling back:", str(e)[:120])

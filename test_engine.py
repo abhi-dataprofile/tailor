@@ -942,6 +942,53 @@ def test_answered_questions_are_never_withheld():
         check(f"answers: {q[:44]}", ab._answer_for(q, full) == want, str(ab._answer_for(q, full)))
 
 
+def test_episodic_memory_and_recall():
+    section("Memory · the same question, asked differently, is recognised")
+    import memory, board_agents as bg, os as _os
+    root = _os.path.dirname(_os.path.abspath(__file__))
+
+    # remembering
+    prof = {"data": {"answer_memory": []}}
+    eps = memory.remember(prof, "loenbro", [
+        {"label": "What is your preferred language?", "answer": "English", "source": "profile", "filled": True},
+        {"label": "Location (City)", "answer": "Buffalo", "source": "profile", "filled": False},
+        {"label": "Gender?", "answer": "", "source": "unanswered", "filled": False},
+    ])
+    by = {e["q"]: e for e in eps}
+    check("an accepted answer is remembered", by["What is your preferred language?"].get("a") == "English")
+    check("a REJECTED answer is remembered as rejected, not reused",
+          by["Location (City)"].get("rejected") == "Buffalo" and not by["Location (City)"].get("a"))
+    check("an unanswered question is remembered as seen", by["Gender?"].get("seen") == 1)
+    check("which board asked it is kept", by["Gender?"].get("boards") == ["loenbro"])
+
+    eps2 = memory.remember({"data": {"answer_memory": eps}}, "capco", [
+        {"label": "what is your preferred language?", "answer": "English", "filled": True}])
+    check("the same question from another board increments, not duplicates",
+          len(eps2) == 3 and next(e for e in eps2 if e["q"].lower().startswith("what is your preferred"))["seen"] == 2)
+
+    check("exact recall ignores case and punctuation",
+          memory.direct_recall("WHAT IS YOUR PREFERRED LANGUAGE", eps) == "English")
+    check("only answers that stuck are recallable",
+          memory.direct_recall("Location (City)", eps) is None)
+
+    # semantic recall: only ever points at an answer already held
+    src = open(_os.path.join(root, "board_agents.py")).read()
+    check("recall runs BEFORE composing a new answer",
+          src.index("_semantic_recall(recall_targets") < src.index("_llm_answer_fields(context, fields"))
+    check("sensitive questions are never sent for recall",
+          "recall_targets = [f for f in ask if not f[\"sensitive\"]]" in src)
+    check("a match must resolve to an answer we already hold",
+          'k["answer"].strip().lower() == ans0.lower()' in src)
+    check("an unreconcilable claim is dropped, not guessed", '"recall_rejected"' in src)
+
+    # the planner prefers memory over everything
+    p = bg.plan([{"key": "k", "label": "What is your preferred language?", "type": "text",
+                  "required": True, "options": [], "sensitive": False, "_el": None}],
+                {}, context="", episodes=eps)
+    check("a remembered question is answered from memory",
+          (p.get("k") or {}).get("source") == "memory", str(p))
+
+
 def test_dead_feed_is_not_silent():
     section("Job sources · a DEAD feed must not masquerade as 'no openings'")
     import ats
@@ -977,7 +1024,8 @@ def main():
               test_answers_by_index, test_banded_and_combo_options,
               test_saved_answers_are_tidied_and_authoritative,
               test_prompt_and_execution_are_editable,
-              test_answered_questions_are_never_withheld):
+              test_answered_questions_are_never_withheld,
+              test_episodic_memory_and_recall):
         try:
             t()
         except Exception as e:

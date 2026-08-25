@@ -20,6 +20,7 @@ submit can be inspected — and corrected — before anything is sent.
 """
 import json, os, re
 
+import memory as ab_memory
 import apply_browser as ab          # helpers live there; ab imports us lazily to avoid a cycle
 
 
@@ -273,7 +274,155 @@ def to_json(schema):
 
 # ─────────────────────────────────────────────────────────────── planning
 
-def plan(schema, bank, context="", extra_prompt="", trace=None):
+def _json_array(raw, key):
+    """The array under `key` in a model reply, read by walking brackets rather than a lazy
+    regex — a lazy one stops at the first ']' inside a nested value and the whole reply is
+    discarded as malformed."""
+    if not raw:
+        return []
+    m = re.search(r'"' + key + r'"\s*:\s*(\[)', raw)
+    if not m:
+        return []
+    i = m.start(1)
+    depth, j = 0, i
+    while j < len(raw):
+        if raw[j] == "[":
+            depth += 1
+        elif raw[j] == "]":
+            depth -= 1
+            if depth == 0:
+                break
+        j += 1
+    try:
+        return json.loads(raw[i:j + 1]) or []
+    except Exception:
+        return []
+
+
+def _semantic_recall(unknown, bank, episodes, trace=None):
+    """Map questions the agent has never seen onto answers it already holds.
+
+    Deterministic synonym matching can only ever cover the phrasings someone thought to list.
+    This asks the model a different question — not "what is the answer" but "is this the same
+    question as one already answered" — which is what actually generalises across boards.
+    Nothing new is invented: the model may only point at an existing answer, or decline.
+    """
+    if not unknown:
+        return {}
+    # numeric ids on BOTH sides: ids made of question text broke JSON parsing the moment a
+    # remembered question contained a quote or a bracket
+    known = []
+    for k, v in (bank or {}).items():
+        if not str(k).startswith("_") and str(v).strip():
+            known.append({"means": k.replace("_", " "), "answer": str(v)[:120]})
+    for e in ab_memory.answered_episodes(episodes)[:120]:
+        known.append({"means": e["q"][:110], "answer": (e.get("a") or "")[:120]})
+    for i, k in enumerate(known, 1):
+        k["id"] = i
+    if not known:
+        return {}
+    try:
+        import llm
+        if not llm.available():
+            return {}
+        sysp = (
+            "You match a new job-application question to an answer the candidate has ALREADY "
+            "given. You never write a new answer — you only decide which known answer, if any, "
+            "answers the same thing.\n\n"
+            "MATCH when two questions ask for the same underlying fact, however differently "
+            "worded. Boards phrase one thing many ways, and that is exactly what you are here "
+            "to see through:\n"
+            "  'Kindly state your total professional tenure in years' = 'How many years of "
+            "experience do you have overall?'\n"
+            "  'By when could you commence employment?' = 'What is your notice period?' = "
+            "'Earliest start date'\n"
+            "  'In which language would you prefer to communicate?' = 'What is your preferred "
+            "language?'\n"
+            "  'Where are you presently based?' = 'What is your current place of residence?'\n\n"
+            "DO NOT MATCH when the new question is NARROWER than the known one. A question "
+            "about a specific technology, domain or employer needs an answer about that same "
+            "specific thing:\n"
+            "  'How many years of Kubernetes administration?' is NOT answered by overall years "
+            "of experience.\n"
+            "  'Years of bookkeeping experience' is NOT answered by years of software "
+            "experience.\n\n"
+            "Reply with the numeric id of the matching known answer, or 0 when nothing "
+            "genuinely matches. A wrong match puts a false statement on a real application; an "
+            "unnecessary 0 just means the candidate is asked once more.\n"
+            "Echo the matched known question in 'known_text' so the match can be checked.\n"
+            'Return STRICT JSON and nothing else: '
+            '{"matches":[{"id":1,"known":0,"known_text":""}]}')
+        userp = ("KNOWN ANSWERS:\n" + json.dumps(known)[:6000]
+                 + "\n\nNEW QUESTIONS:\n"
+                 + json.dumps([{"id": i + 1, "q": f["label"]} for i, f in enumerate(unknown)]))
+        raw = llm.gen(sysp, userp, json_mode=True, temp=0, max_tokens=900)
+        if trace is not None:
+            trace["recall"] = {"known_count": len(known), "asked": len(unknown),
+                               "system_prompt": sysp, "raw_response": (raw or "")[:2500]}
+        rows = _json_array(raw, "matches")
+    except Exception as e:
+        if trace is not None:
+            trace["recall"] = {"error": str(e)[:160]}
+        return {}
+    # Models answer this in whatever shape they like: "known" as a number OR as the question
+    # text, sometimes under "known_text", usually with the answer echoed alongside. Resolve by
+    # TEXT first — that is what they produce reliably — with the index only as a fallback, and
+    # drop anything that cannot be reconciled. An off-by-one once matched "by when could you
+    # commence employment?" to "English".
+    out = {}
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        try:
+            i = int(r.get("id", 0)) - 1
+        except Exception:
+            continue
+        if not (0 <= i < len(unknown)):
+            continue
+        claim = r.get("known")
+        text = (r.get("known_text") or (claim if isinstance(claim, str) else "") or "").strip()
+        kid = None
+        if text:
+            tf = ab._fp(text)
+            best, score = None, 0.0
+            for n, k in enumerate(known):
+                kf = ab._fp(k["means"])
+                if not kf or not tf:
+                    continue
+                sc = len(tf & kf) / max(1, min(len(tf), len(kf)))
+                if sc > score:
+                    score, best = sc, n
+            if score >= 0.6:
+                kid = best
+        if kid is None and isinstance(claim, (int, float)) and not isinstance(claim, bool):
+            n = int(claim) - 1
+            if 0 <= n < len(known):
+                kid = n
+        if kid is None:
+            # It sometimes echoes the NEW question rather than the remembered one. The answer
+            # it echoes is still checkable: accept it only if it is EXACTLY an answer we
+            # already hold, so nothing new can enter this way.
+            ans0 = (r.get("answer") or "").strip()
+            if ans0:
+                kid = next((n for n, k in enumerate(known)
+                            if k["answer"].strip().lower() == ans0.lower()), None)
+        if kid is None:
+            if text and trace is not None:
+                trace.setdefault("recall_rejected", []).append(
+                    {"q": unknown[i]["label"][:80], "claimed": text[:70]})
+            continue
+        ans = (r.get("answer") or "").strip()      # if it echoed an answer, it must be ours
+        if ans and ans[:60].lower() != known[kid]["answer"][:60].lower():
+            if trace is not None:
+                trace.setdefault("recall_rejected", []).append(
+                    {"q": unknown[i]["label"][:80], "claimed": text[:70],
+                     "answer_mismatch": ans[:50]})
+            continue
+        out[unknown[i]["key"]] = known[kid]["answer"]
+    return out
+
+
+def plan(schema, bank, context="", extra_prompt="", trace=None, episodes=None):
     """Answer the whole form at once. Returns {key: {answer, source}}.
 
     Order of authority, highest first:
@@ -285,7 +434,15 @@ def plan(schema, bank, context="", extra_prompt="", trace=None):
     form can be read back as: what was asked, what we knew, what we did, and why.
     """
     out, ask, why = {}, [], {}
+    episodes = episodes or []
     for f in schema:
+        # 1. this exact question, met before on any board
+        a = ab_memory.direct_recall(f["label"], episodes)
+        if a:
+            out[f["key"]] = {"answer": str(a), "source": "memory"}
+            why[f["key"]] = "you answered this exact question before — recalled from memory"
+            continue
+        # 2. a structured fact, matched by meaning
         a = ab._answer_for(f["label"], bank)
         if a not in (None, ""):
             out[f["key"]] = {"answer": str(a), "source": "profile"}
@@ -333,6 +490,18 @@ def plan(schema, bank, context="", extra_prompt="", trace=None):
         ask.append({**f, "_hint": chosen})
         del out[f["key"]]
         why[f["key"]] = f"your saved answer {chosen!r} matches no option — asked the model to map it"
+
+    # 3. Nothing matched by rule — ask the model whether any of these is a REWORDING of
+    #    something already answered. Recall before composition: reusing a real answer is
+    #    always better than writing a new one.
+    recall_targets = [f for f in ask if not f["sensitive"]]
+    if recall_targets:
+        rec = _semantic_recall(recall_targets, bank, episodes, trace=trace)
+        for f in list(ask):
+            if f["key"] in rec:
+                out[f["key"]] = {"answer": rec[f["key"]], "source": "recall"}
+                why[f["key"]] = "recognised as another wording of a question you have answered"
+                ask.remove(f)
 
     if trace is not None:
         trace["answered_from_profile"] = {f["key"]: out[f["key"]] for f in schema if f["key"] in out}
@@ -472,14 +641,15 @@ def fill(page, frame, schema, planned, trace=None):
 
 # ─────────────────────────────────────────────────────────────── the whole run
 
-def run(page, frame, vendor, bank, context="", extra_prompt=""):
+def run(page, frame, vendor, bank, context="", extra_prompt="", episodes=None):
     """navigate → extract → plan → fill, returning everything for the record."""
     trace = {"agent": route(page.url or "")["name"],
+             "memory": ab_memory.stats(episodes),
              "profile_facts": {k: v for k, v in (bank or {}).items()
                                if not str(k).startswith("_") and v}}
     schema = extract(frame)
     trace["fields_read"] = to_json(schema)
-    planned = plan(schema, bank, context, extra_prompt, trace=trace)
+    planned = plan(schema, bank, context, extra_prompt, trace=trace, episodes=episodes)
     filled, missing = fill(page, frame, schema, planned, trace=trace)
     return {
         "schema": to_json(schema),

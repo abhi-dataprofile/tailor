@@ -1415,6 +1415,8 @@ class H(SimpleHTTPRequestHandler):
                 _cfg = ((_p.get("data") or {}).get("orchestration") or {})
                 import prompts as _prompts
                 _standing["_system_prompt"] = _prompts.get(_cfg, "form_answer")
+                import memory as _memory
+                _standing["_episodes"] = (( _p.get("data") or {}).get("answer_memory") or [])[:400]
                 _standing.setdefault("_answer_prompt", (_cfg.get("answers") or {}).get("answer_prompt", ""))
                 if (_cfg.get("answers") or {}).get("persona"):
                     _standing.setdefault("_persona", _cfg["answers"]["persona"])
@@ -1465,6 +1467,18 @@ class H(SimpleHTTPRequestHandler):
                    "filled": [k for k, v in (res.get("filled") or {}).items() if v],
                    "resume_attached": bool(res.get("resume_attached")),
                    "warnings": res.get("warnings") or []}
+            try:
+                _decisions = ((res.get("field_trace") or {}).get("decisions") or [])
+                if _decisions and _p:
+                    import memory as _memory
+                    _eps = _memory.remember(_p, (jr[0].get("company_slug") if jr else ""), _decisions)
+                    _pd = dict(_p.get("data") or {}); _pd["answer_memory"] = _eps
+                    sb.upsert("profiles", [{"user_id": user, "data": _pd}],
+                              on_conflict="user_id", update=True)
+                    _USER_CACHE.pop(user, None)
+                    rec["memory"] = _memory.stats(_eps)
+            except Exception as e:
+                print("[memory] not recorded:", str(e)[:120])
             log_receipt(rec)
             _mirror_application(user, body.get("job_id"), res, body.get("answers", {}) or {}, rec,
                                 body.get("resume_html", "") or "")

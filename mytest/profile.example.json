@@ -1,0 +1,74 @@
+{
+  "_README": "Copy this file to profile.json and replace everything with YOUR real details. Anything you leave blank is simply left blank on the form — the agent never invents facts.",
+
+  "name": "Your Full Name",
+  "email": "you@example.com",
+  "title": "Software Engineer",
+  "contact": "+1 555 123 4567 · San Jose, CA",
+  "summary": "Two or three lines about you. The agent rewrites this per job, but it only ever reworks what you write here.",
+  "skills": ["Python", "TypeScript", "React", "PostgreSQL", "AWS", "Docker"],
+
+  "data": {
+    "address": { "city": "San Jose", "state": "CA", "country": "United States" },
+
+    "links": [
+      { "label": "LinkedIn", "url": "https://linkedin.com/in/yourhandle" },
+      { "label": "GitHub", "url": "https://github.com/yourhandle" }
+    ],
+
+    "exp": [
+      {
+        "role": "Software Engineer Intern",
+        "company": "Some Company",
+        "dates": "Summer 2025",
+        "bullets": [
+          "What you built, with a number if you have one.",
+          "Another real accomplishment — the agent rewrites these to match the job, but never fabricates new ones."
+        ]
+      }
+    ],
+
+    "education": [
+      { "degree": "M.S. Computer Science", "school": "Your University", "dates": "2024–2026" }
+    ],
+
+    "proj": [
+      { "name": "Project Name", "desc": "One line on what it does and what you used." }
+    ],
+
+    "certs": [],
+
+    "_comment_standing": "STANDING ANSWERS — the legal/demographic questions. These are NEVER answered by the AI; it uses exactly what you write here, or leaves the field for you. Fill in what applies to you.",
+    "standing": {
+      "work_authorized": "Yes",
+      "needs_sponsorship": "Yes",
+      "requires_sponsorship": "Yes",
+      "visa_type": "F-1 OPT",
+      "citizenship": "India",
+      "over_18": "Yes",
+      "start_date": "2026-06-01",
+      "years_experience": "2",
+      "salary_expectation": "Market rate",
+      "relocate": "Yes",
+      "remote_ok": "Yes",
+      "how_did_you_hear": "Company website",
+      "gender": "Prefer not to say",
+      "race": "Prefer not to say",
+      "veteran_status": "I am not a protected veteran",
+      "disability_status": "I do not wish to answer",
+
+      "_persona": "International student in the US on F-1/OPT seeking full-time new-grad software roles; needs future H-1B sponsorship.",
+
+      "_comment_custom": "Answers to free-text questions you've been asked before. The agent reuses these on reworded versions of the same question.",
+      "_custom": {
+        "Why are you interested in this role?": "",
+        "Why do you want to work here?": ""
+      }
+    },
+
+    "orchestration": {
+      "tailor": { "engine": "server", "bullets_per_role": 6 },
+      "answers": { "cover_letter": false }
+    }
+  }
+}

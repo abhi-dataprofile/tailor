@@ -118,6 +118,41 @@ _APPLY_TEXTS = ["Apply for this job", "Apply for this position", "Apply now", "A
                 "Apply online", "Apply to this job", "Start your application", "Start application",
                 "I'm interested", "Apply"]
 
+# consent-banner button text, most privacy-preserving first. We only need the form clickable —
+# there's no reason to opt the candidate into tracking to apply for a job.
+_CONSENT_TEXT = (
+    (r"^(reject|decline)\s*(all|non[- ]?essential|optional)?$", r"^(only|accept)?\s*(strictly\s*)?"
+     r"(necessary|essential)\s*(cookies|only)?$", r"^reject non-essential$", r"^continue without"),
+    (r"^(dismiss|got it|close)$",),
+    (r"^(accept|allow)\s*(all|cookies)?$", r"^i agree$", r"^ok$"),
+)
+
+def _dismiss_consent(page):
+    """Clear a cookie/consent overlay, declining non-essential cookies where offered.
+
+    Scans the page AND its iframes (consent platforms usually render in one), and matches on
+    the element's own text rather than assuming a <button> tag — banners use <a> and <div
+    role=button> just as often, which is why selector-only matching missed real ones."""
+    for group in _CONSENT_TEXT:
+        for pat in group:
+            rx = re.compile(pat, re.I)
+            for fr in [page] + list(getattr(page, "frames", []) or []):
+                try:
+                    els = fr.query_selector_all("button, a, [role=button], input[type=button], input[type=submit]")
+                except Exception:
+                    continue
+                for el in els:
+                    try:
+                        if not el.is_visible():
+                            continue
+                        txt = (el.inner_text() or el.evaluate("e=>e.value||''") or "").strip()
+                        if txt and len(txt) < 40 and rx.match(txt):
+                            el.click(timeout=3000); page.wait_for_timeout(600)
+                            return True
+                    except Exception:
+                        continue
+    return False
+
 def _reveal_apply(page):
     """Click an Apply button/link to reveal the form — searching the page AND any iframes,
     so embedded flows (iCIMS, corporate embeds) open even when there's no direct form."""
@@ -853,20 +888,16 @@ def submit(job, answers, resume_html, standing=None, dry=True, headless=True, ti
             # ensure the application form is on screen: many pages are a description with an
             # "Apply" button, React forms render async, and iCIMS/embeds load the form in an
             # iframe. Reveal it (searching page + frames), then wait for a field anywhere.
+            # Consent banners are dismissed BEFORE we look for the form — they overlay the page
+            # and swallow the click on "Apply", leaving the form closed (and us reporting a
+            # suspiciously empty form as if it were complete).
+            _dismiss_consent(page)
             _reveal_apply(page)
             try:
                 page.wait_for_selector(_EMAIL_SEL, timeout=9000)
             except Exception:
                 pass
-            # dismiss cookie/consent banners that overlay the form
-            for csel in ["#onetrust-accept-btn-handler","button:has-text('Accept all')","button:has-text('Accept')",
-                         "button:has-text('Dismiss')","button:has-text('Got it')","button:has-text('I agree')","[aria-label='dismiss']"]:
-                try:
-                    cb = page.query_selector(csel)
-                    if cb and cb.is_visible():
-                        cb.click(); page.wait_for_timeout(400); break
-                except Exception:
-                    continue
+            _dismiss_consent(page)         # again: some banners only appear after interaction
             # the form may live inside an embedded ATS iframe (iCIMS, corporate embeds) — from
             # here on, operate on that frame (Playwright Frame shares the query/fill API).
             frame = _form_frame(page)
@@ -946,9 +977,40 @@ def submit(job, answers, resume_html, standing=None, dry=True, headless=True, ti
             unfilled_required = _fill_questions(frame, _bank, context)
             shot = os.path.join(OUT_DIR, f"{re.sub(r'[^a-z0-9]+','-',(job.get('title') or 'job').lower())[:40]}-{int(time.time())}.png")
             page.screenshot(path=shot, full_page=True)
-            prepared = {"filled": filled, "resume_attached": attached, "screenshot": shot, "unfilled_required": unfilled_required}
+            # DID THE FORM ACTUALLY OPEN? A page still showing the job description (consent wall,
+            # an "Apply" click that didn't land, a form behind a login) has no résumé input and
+            # almost no fields — and would otherwise be reported as "nothing left to fill",
+            # which reads as success. Say plainly that we never reached a real form instead.
+            n_std = sum(1 for v in filled.values() if v)
+            warnings = []
+            if not attached:
+                warnings.append("the résumé could not be attached (no upload field found)")
+            # A page still showing only the job description — consent wall, an "Apply" click that
+            # didn't land, a form behind a login — has no résumé input AND almost no fields. It
+            # would otherwise report "nothing left to fill", which reads as success.
+            form_ready = bool(file_inputs) or n_std >= 2
+            if not form_ready:
+                warnings.append("almost none of the standard fields (name/email/phone) were present")
+            prepared = {"filled": filled, "resume_attached": attached, "screenshot": shot,
+                        "unfilled_required": unfilled_required, "warnings": warnings,
+                        "form_ready": form_ready}
+            if not form_ready:
+                return {"ok": False, "status": "form_not_ready",
+                        "detail": "Never reached a real application form — " + "; ".join(warnings)
+                                  + ". Open the link yourself to check.", **prepared}
+            if not attached:
+                # the form is genuinely open, but an application without a résumé is not an
+                # application — say so precisely instead of implying the whole page failed.
+                return {"ok": False, "status": "needs_answers",
+                        "detail": "Form reached and filled, but no résumé upload field was found — "
+                                  "attach it yourself, or use the employer's direct apply link.",
+                        **prepared}
             if not live:
                 return {"ok": True, "status": "dry_prepared", "detail": "Form prepared (not submitted).", **prepared}
+            # An application without the résumé is not an application — never send one.
+            if not attached:
+                return {"ok": False, "status": "needs_answers",
+                        "detail": "Not submitted — the résumé could not be attached.", **prepared}
             # HONEST GATE: never click submit while REQUIRED questions are unanswered.
             # Submitting a half-filled form (then reporting "sent") is the faking we refuse
             # to do — surface exactly what's missing so it can be answered, then finish.

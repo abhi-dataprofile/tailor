@@ -36,3 +36,6 @@ connectors.json
 
 # persistent Chrome profile for the apply engine
 .tailor_chrome/
+mytest/profile.json
+mytest/out_resume.html
+mytest/__pycache__/

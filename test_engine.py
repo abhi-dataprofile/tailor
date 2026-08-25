@@ -263,6 +263,53 @@ def test_read_resilience():
         fake_sb.FAIL["on"] = False
 
 
+def test_form_not_ready_is_not_success():
+    section("A form that never opened must not read as success")
+    fake_sb.reset(); _stub_common()
+    # what a consent wall / unopened modal looks like: no file input, nothing filled, and
+    # (crucially) no required questions found — which used to render as "all answered ✅"
+    _stub_submit({"ok": False, "status": "form_not_ready", "backend": "browser",
+                  "detail": "Never reached a real application form — no résumé upload field was found.",
+                  "unfilled_required": [], "warnings": ["no résumé upload field was found"],
+                  "form_ready": False, "filled": {}, "resume_attached": False})
+    engine.apply_one("u1", PROFILE, JOB)
+    r = app_row()
+    check("classified as needs_you, not draft/submitted",
+          r.get("status") == "needs_you", f"status={r.get('status')}")
+    check("never marked as sent", not r.get("submitted_at"))
+    check("the reason is recorded for the user",
+          "form" in ((r.get("receipt") or {}).get("detail") or "").lower())
+
+def test_never_submits_without_resume():
+    section("An application without the résumé is never sent")
+    src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "apply_browser.py")).read()
+    gate = src.split("# An application without the résumé is not an application", 1)
+    check("apply_browser refuses to submit when the résumé didn't attach", len(gate) == 2)
+    if len(gate) == 2:
+        after = gate[1][:400]
+        check("that refusal happens BEFORE the submit button is clicked",
+              "not attached" in after and "_find_submit" not in after)
+
+def test_consent_prefers_rejecting():
+    section("Consent banners · declines non-essential cookies")
+    import apply_browser as ab
+    src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "apply_browser.py")).read()
+    check("a consent dismisser exists", hasattr(ab, "_dismiss_consent"))
+    groups = ab._CONSENT_TEXT
+    import re as _re
+    def _grp(text):
+        return next((i for i, g in enumerate(groups) for p in g if _re.match(p, text, _re.I)), None)
+    check("'Reject non-essential' is matched", _grp("Reject non-essential") is not None)
+    check("'Accept all' is matched", _grp("Accept all") is not None)
+    check("reject is tried before accept",
+          _grp("Reject non-essential") < _grp("Accept all"),
+          f"reject group={_grp('Reject non-essential')} accept group={_grp('Accept all')}")
+    check("consent search covers iframes (banners usually render in one)",
+          "page.frames" in src or "getattr(page, \"frames\"" in src)
+    check("consent is cleared before the form is revealed",
+          src.find("_dismiss_consent(page)") < src.find("_reveal_apply(page)"))
+
+
 def test_dead_feed_is_not_silent():
     section("Job sources · a DEAD feed must not masquerade as 'no openings'")
     import ats
@@ -287,7 +334,8 @@ def main():
               test_honest_gate, test_captcha_path, test_confirmed_vs_unconfirmed,
               test_retry_scheduling, test_dedup, test_claim_lock, test_enrich_no_invention,
               test_crawler_throttle, test_crawler_cycle_on_dead_db, test_read_resilience,
-              test_dead_feed_is_not_silent):
+              test_dead_feed_is_not_silent, test_form_not_ready_is_not_success,
+              test_never_submits_without_resume, test_consent_prefers_rejecting):
         try:
             t()
         except Exception as e:

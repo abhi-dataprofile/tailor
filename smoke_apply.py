@@ -193,15 +193,20 @@ def main():
         standing = (PROFILE["data"].get("standing")) or {}
         standing = engine._enrich_standing(PROFILE, standing)   # same path apply_one uses
         res = engine.submit_application(JOB, ANS, RESUME["html"], dry=True, standing=standing)
-        backend = res.get("backend")
         status = res.get("status")
         unfilled = res.get("unfilled_required") or []
-        lines = [f"backend={backend} · status={status}",
+        filled = [k for k, v in (res.get("filled") or {}).items() if v]
+        lines = [f"backend={res.get('backend')} · status={status}",
+                 f"filled={', '.join(filled) or 'NOTHING'} · résumé={'attached' if res.get('resume_attached') else 'NOT attached'}",
                  f"detail={res.get('detail','')}"[:180]]
         if unfilled:
             lines.append("unfilled required: " + "; ".join(map(str, unfilled[:6])))
-        # A clean dry run = the engine prepared everything with nothing required left blank.
-        ok = (status in ("dry_prepared", "awaiting_review", "submitted", "sent")) and not unfilled
+        # A pass means the agent actually PREPARED A REAL APPLICATION — not merely that it
+        # found nothing to complain about. "No unanswered questions" is worthless on a page
+        # that never showed a form: that combination is what made a consent wall look like a
+        # clean run. Require real evidence: standard fields filled AND the résumé attached.
+        ok = (status in ("dry_prepared", "awaiting_review", "submitted", "sent")
+              and not unfilled and len(filled) >= 2 and bool(res.get("resume_attached")))
         return ok, "\n".join(lines)
     stage(6, "Browser engine — DRY submit", s6)
 

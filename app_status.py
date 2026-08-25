@@ -53,8 +53,8 @@ def classify(res):
         return "submitted_unconfirmed"
     if raw == "captcha":
         return "blocked_captcha"
-    if raw in ("needs_review", "needs_answers"):
-        return "needs_you"
+    if raw in ("needs_review", "needs_answers", "form_not_ready"):
+        return "needs_you"        # we never reached a usable form → a human should look
     if raw in ("unsupported", "unsupported_form", "no_submit_button", "blocked"):
         return "failed_permanent"
     return "failed_transient"   # http_*, network_error, browser_error, error, timeouts

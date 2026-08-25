@@ -1410,6 +1410,12 @@ class H(SimpleHTTPRequestHandler):
                     _standing["_custom"] = _custom           # …but merge the verbatim answers
                 import apply as _apply
                 _standing = _apply._enrich_standing(_p, _standing)   # + city/country/school/title
+                _cfg = ((_p.get("data") or {}).get("orchestration") or {})
+                import prompts as _prompts
+                _standing["_system_prompt"] = _prompts.get(_cfg, "form_answer")
+                _standing.setdefault("_answer_prompt", (_cfg.get("answers") or {}).get("answer_prompt", ""))
+                if (_cfg.get("answers") or {}).get("persona"):
+                    _standing.setdefault("_persona", _cfg["answers"]["persona"])
             except Exception as e:
                 print("[apply] couldn't load the saved answer bank:", str(e)[:120])
             # The browser sends whatever it cached; the DATABASE profile is authoritative. A

@@ -888,7 +888,9 @@ function saveMissing(url,label){
 }
 /* ===================== AGENT CONTROL BOARD ===================== */
 let AG_MODE="auto",AG_ONE="prefer",AG_ENGINE="server",AG_CFG=null;
-const AG_PROMPTS=[["understand","Understand the role"],["summary","Tailored summary"],["bullets","Rewrite experience bullets"],["projects","Suggest projects"],["cover_letter","Cover letter"]];
+const AG_PROMPTS=[["form_answer","Answering form questions — the rules the agent follows on every application"],
+  ["understand","Understand the role"],["summary","Tailored summary"],["bullets","Rewrite experience bullets"],
+  ["projects","Suggest projects"],["cover_letter","Cover letter"]];
 async function loadAgent(){
   let o,s,l;
   try{[o,s,l]=await Promise.all([
@@ -1103,6 +1105,9 @@ renderNav("dash");
 <label class="qb-row"><span>Comfortable working onsite / hybrid as the role requires?</span><select class="in" data-q="remote_ok"><option value="">— choose —</option><option>Yes</option><option>No</option></select></label>
 <label class="qb-row"><span>Able to work the shift timings this role requires (incl. EMEA/US overlap)?</span><select class="in" data-q="shift_ok"><option value="">— choose —</option><option>Yes</option><option>No</option></select></label>
 <label class="qb-row"><span>How did you hear about the role?</span><input class="in" data-q="how_heard" type="text" placeholder="Company website"></label>
+<label class="qb-row"><span>Relatives or friends at the companies you apply to</span><input class="in" data-q="relatives_at_company" type="text" placeholder="N/A"></label>
+<label class="qb-row"><span>Have you worked for them before?</span><select class="in" data-q="worked_here_before"><option value="">— choose —</option><option>No</option><option>Yes</option></select></label>
+<label class="qb-row"><span>Were you referred by an employee?</span><input class="in" data-q="referred_by" type="text" placeholder="N/A"></label>
 </div>
 <div class="qb-group"><h4>Compensation — never answered for you</h4>
 <label class="qb-row"><span>Current total compensation</span><input class="in" data-q="current_compensation" type="text" placeholder=""></label>

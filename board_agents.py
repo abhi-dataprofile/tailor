@@ -356,7 +356,8 @@ def plan(schema, bank, context="", extra_prompt="", trace=None):
                 q["candidate_said"] = f["_hint"]      # map their words onto a real option
             fields.append(q)
         llm_trace = {} if trace is not None else None
-        answered = ab._llm_answer_fields(context, fields, extra_prompt, trace=llm_trace) or {}
+        answered = ab._llm_answer_fields(context, fields, extra_prompt, trace=llm_trace,
+                                         system=(bank or {}).get("_system_prompt", "")) or {}
         if trace is not None:
             trace["llm"] = llm_trace
         def _norm_q(x):

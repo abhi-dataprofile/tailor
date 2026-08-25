@@ -403,6 +403,15 @@ ANSWER_KEYS = [
  ("veteran", ["veteran"]),
  ("disability", ["disab"]),
  ("how_heard", ["how did you hear","where did you hear","how did you find"]),
+ # Relationship-to-this-employer questions. A résumé cannot say whether you have friends at a
+ # company, so this is stated once rather than guessed — and it appears on a great many forms.
+ ("relatives_at_company", ["relatives or close personal friends","relatives who work",
+                           "friends who currently work","family members employed",
+                           "related to any.{0,20}employee","know anyone who works"]),
+ ("worked_here_before", ["worked for.{0,30}in the past","previously employed by",
+                         "been employed by","worked here before","former employee of",
+                         "ever been employed by"]),
+ ("referred_by", ["referred by","referral source","who referred you","employee referral"]),
  # from the answer-bank questionnaire — one saved answer covers every rewording a board uses
  ("currently_working", ["are you currently working","are you currently employed","currently working",
                         "current employment status"]),
@@ -862,7 +871,7 @@ def _merge_answer_objects(raw):
             pass
     return out
 
-def _llm_answer_fields(context, fields, extra="", trace=None):
+def _llm_answer_fields(context, fields, extra="", trace=None, system=""):
     """Answer NON-sensitive application questions from the candidate's own material, using the
     backend LLM (llm.py: a configured hosted key OR local Ollama). Returns {label: answer}.
     Returns {} when no model is available or on any error — callers then fall back to needs_you.
@@ -884,33 +893,19 @@ def _llm_answer_fields(context, fields, extra="", trace=None):
             if f.get("candidate_said"):
                 q["candidate_said"] = f["candidate_said"]
             qs.append(q)
-        sysp = (
-            "You are completing a job application on behalf of the candidate, from the material below.\n"
-            "Return an entry for EVERY question asked. The value is what should be typed into that "
-            "field — no explanations, no apologies, no sentences about what you cannot determine. "
-            "If a question genuinely cannot be answered, use an empty string.\n\n"
-            "HOW TO DECIDE:\n"
-            "1. FACTS about the candidate's history (employers, titles, dates, degrees) come from the "
-            "material only. Never invent one. If the material shows no experience in the thing being "
-            "asked about, the answer is an empty string — do NOT substitute a related number. "
-            "'Years of bookkeeping experience' is not answered by years of software experience.\n"
-            "2. DERIVED facts are fine when the material supports them: total years of experience from "
-            "a summary or from role dates; whether the candidate is currently working from an unfinished "
-            "role; their current or last employer and title.\n"
-            "3. WILLINGNESS and PREFERENCE questions — 'are you ready to work EMEA shift timings', "
-            "'happy to work N days in the office', 'willing to relocate', 'preferred location', 'when "
-            "can you join' — are about intent, not history. Someone applying to a role has accepted its "
-            "stated working arrangement, so answer these affirmatively and concretely from the "
-            "candidate's stated context. These are NOT facts to look up; leaving them blank is wrong.\n"
-            "4. OPEN questions like 'reason for job change' should get a short, professional, "
-            "first-person answer grounded in the candidate's situation.\n"
-            "5. Never state or imply compensation, immigration status, or demographic information "
-            "unless it appears verbatim in the material.\n"
-            "6. choose_one_of: reply with EXACTLY one of the listed options. candidate_said is the "
-            "candidate's own answer — map it onto the closest listed option rather than discarding it.\n"
-            + (("\nExtra guidance from the candidate: " + extra.strip()[:800] + "\n") if extra else "")
-            + '\nReturn STRICT JSON and NOTHING else, with one entry per question id, in order:\n'
-              '{"answers":[{"id":1,"a":"<value>"},{"id":2,"a":""}]}')
+        # The rules are editable in the Agent board (Prompts → Answering form questions);
+        # this default is prompts.DEFAULTS["form_answer"].
+        base = system or ""
+        if not base:
+            try:
+                import prompts
+                base = prompts.DEFAULTS["form_answer"]
+            except Exception:
+                base = "Complete this job application from the candidate material. Never invent facts."
+        sysp = (base
+                + (("\n\nExtra guidance from the candidate: " + extra.strip()[:800]) if extra else "")
+                + '\nReturn STRICT JSON and NOTHING else, with one entry per question id, in order:\n'
+                  '{"answers":[{"id":1,"a":"<value>"},{"id":2,"a":""}]}')
         userp = "CANDIDATE MATERIAL:\n" + context[:6000] + "\n\nQUESTIONS (JSON):\n" + json.dumps(qs)
         raw = llm.gen(sysp, userp, json_mode=True, temp=0, max_tokens=800)
         if trace is not None:

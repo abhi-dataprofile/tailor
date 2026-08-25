@@ -759,7 +759,7 @@ def test_never_claims_experience_you_dont_have():
 
     # the same leak via the model path: it answers one question, a loose fuzzy match hands
     # that answer to a different one
-    ab._llm_answer_fields = lambda ctx, fields, extra="", trace=None: {
+    ab._llm_answer_fields = lambda ctx, fields, extra="", trace=None, system="": {
         "How many years of experience do you have in overall?": "4+"}
     schema = [
         {"key": "a", "label": "How many years of experience do you have in overall?", "type": "text",
@@ -855,6 +855,34 @@ def test_saved_answers_are_tidied_and_authoritative():
           '_answers["email"] = _p["email"]' in srv)
 
 
+def test_prompt_and_execution_are_editable():
+    section("Control · the rules and the knobs are yours to edit")
+    import prompts, os as _os
+    root = _os.path.dirname(_os.path.abspath(__file__))
+    dash = open(_os.path.join(root, "dashboard.html")).read()
+    srv = open(_os.path.join(root, "serve.py")).read()
+    src = open(_os.path.join(root, "apply_browser.py")).read()
+
+    check("the form-answering prompt is a default, not hardcoded",
+          "form_answer" in prompts.DEFAULTS and len(prompts.DEFAULTS["form_answer"]) > 800)
+    check("the engine takes it from config", 'system=""' in src and "system or \"\"" in src)
+    check("the server passes the user's edited version",
+          '_prompts.get(_cfg, "form_answer")' in srv)
+    check("the Agent board offers it for editing", '["form_answer"' in dash)
+    # the execution knobs were already there — make sure they stay
+    for knob in ("execution.retries", "execution.timeout", "execution.claim_ttl",
+                 "execution.domain_gap", "execution.headed", "modes.daily_cap", "model.provider"):
+        check(f"editable: {knob}", f'data-c="{knob}"' in dash)
+
+    # relationship-to-employer questions: stated once, matched everywhere
+    import apply_browser as ab
+    bank = {"relatives_at_company": "N/A", "worked_here_before": "No", "referred_by": "N/A"}
+    for q, want in (("Do you have any relatives or close personal friends who currently work at Loenbro?", "N/A"),
+                    ("Have you ever been employed by Stripe or a Stripe affiliate?", "No"),
+                    ("Were you referred by an employee?", "N/A")):
+        check(f"answers: {q[:44]}", ab._answer_for(q, bank) == want, str(ab._answer_for(q, bank)))
+
+
 def test_dead_feed_is_not_silent():
     section("Job sources · a DEAD feed must not masquerade as 'no openings'")
     import ats
@@ -888,7 +916,8 @@ def main():
               test_hosted_model_and_saved_answers_are_actually_used,
               test_answer_bank_questionnaire, test_never_claims_experience_you_dont_have,
               test_answers_by_index, test_banded_and_combo_options,
-              test_saved_answers_are_tidied_and_authoritative):
+              test_saved_answers_are_tidied_and_authoritative,
+              test_prompt_and_execution_are_editable):
         try:
             t()
         except Exception as e:

@@ -844,6 +844,11 @@ async function autoApply(url,btn){
   if(btn){btn.disabled=false;btn.textContent=btn.dataset.t||"⚡ Auto";}
   loadActivity();  // reflect whatever the agent just did
   const uf=((res&&res.unfilled_required)||[]).map(u=>({...u,label:(u.label&&!/^\(/.test(u.label))?u.label:(u.name||"Additional required question")})).filter(u=>u.label);
+  /* Statuses that are NOT "the agent failed, open the page yourself". Falling through to
+     window.open() for these made a daily-limit message look like the agent had given up and
+     handed the job back — the most confusing possible response to "why did Auto stop working". */
+  if(res.status==="limit")return toast(res.detail||"Daily auto-apply limit reached — raise FREE_APPLY_LIMIT in .env");
+  if(res.status==="needs_answers"||res.status==="form_not_ready"){loadActivity();return toast(res.detail||"Needs your answers — see the activity below");}
   if(res.status==="submitted"){setState(url,"submitted",j,{resume_html:resumeHtml()});renderAll();return toast("Submitted ✓ — résumé saved");}
   if(uf.length)return askMissing(url,label,uf);
   if(res.status==="dry_prepared")return toast("Auto-filled ✓ — flip “Fill only → Fill & submit” above to send it automatically.");

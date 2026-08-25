@@ -616,6 +616,13 @@ def test_decision_trace_is_recorded():
     check("every field records WHY it was or wasn't answered", '"why": why.get(' in
           open(_os.path.join(root, "board_agents.py")).read())
     check("the UI renders a per-field decision table", 'class="dtab"' in dash)
+    # hitting the daily cap fell through to window.open(), so a limit message looked exactly
+    # like "the agent gave up — apply yourself"
+    check("a plan-limit response is reported, not turned into a manual hand-off",
+          'res.status==="limit"' in dash and
+          dash.index('res.status==="limit"') < dash.index('"Couldn\'t auto-fill"'))
+    check("needs_answers / form_not_ready are reported too, not handed off",
+          'res.status==="needs_answers"||res.status==="form_not_ready"' in dash)
     for col in ("Question", "Answer", "Why"):
         check(f"decision table column: {col}", f"<th>{col}</th>" in dash)
     check("it explains when the model was NOT called", "why_no_model_call" in dash)

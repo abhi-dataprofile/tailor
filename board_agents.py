@@ -405,8 +405,13 @@ def plan(schema, bank, context="", extra_prompt="", trace=None):
 
 # ─────────────────────────────────────────────────────────────── filling
 
-def fill(page, frame, schema, planned):
-    """Apply the plan. Returns (filled_labels, unanswered_required)."""
+def fill(page, frame, schema, planned, trace=None):
+    """Apply the plan. Returns (filled_labels, unanswered_required).
+
+    The outcome is written back into trace["decisions"], because a planned answer is not the
+    same as a filled field: a combobox rejects a value that matches none of its suggestions,
+    and the decision table was reporting "answered from your profile" for fields the form
+    still listed as missing."""
     filled, missing = [], []
     for f in schema:
         p = planned.get(f["key"])
@@ -448,6 +453,19 @@ def fill(page, frame, schema, planned):
             filled.append(f["label"])
         elif f["required"]:
             missing.append({"label": f["label"], "type": t, "options": f["options"][:12]})
+        if trace is not None and not done and ans:
+            # planned, but the control would not take it — say so rather than claiming success
+            for d in trace.get("decisions", []):
+                if d["label"] == f["label"]:
+                    d["filled"] = False
+                    d["why"] = (f"planned {str(ans)[:40]!r} from your {(p or {}).get('source','profile')}, "
+                                f"but this {t} has no matching option — update it under Add answers")
+                    break
+        elif trace is not None:
+            for d in trace.get("decisions", []):
+                if d["label"] == f["label"]:
+                    d["filled"] = bool(done)
+                    break
     return filled, missing
 
 
@@ -461,7 +479,7 @@ def run(page, frame, vendor, bank, context="", extra_prompt=""):
     schema = extract(frame)
     trace["fields_read"] = to_json(schema)
     planned = plan(schema, bank, context, extra_prompt, trace=trace)
-    filled, missing = fill(page, frame, schema, planned)
+    filled, missing = fill(page, frame, schema, planned, trace=trace)
     return {
         "schema": to_json(schema),
         "plan": {k: v for k, v in planned.items()},

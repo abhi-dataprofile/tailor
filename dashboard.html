@@ -203,6 +203,8 @@ a{color:var(--primary-tint)}
 .qb-row{display:grid;grid-template-columns:1fr 260px;gap:14px;align-items:center;margin:0 0 8px}
 .qb-row span{font-size:13px}
 @media(max-width:640px){.qb-row{grid-template-columns:1fr}}
+.dtab .notland{background:rgba(190,60,40,.13);border-radius:4px;padding:1px 5px;font-size:10px;white-space:nowrap}
+.dtab tr.src-profile td .notland{background:rgba(190,60,40,.16)}
 </style>
 </head>
 <body>
@@ -578,7 +580,7 @@ function renderDetail(d){
             <td>${esc(x.label)}${x.required?'<span class="req">*</span>':''}${x.sensitive?'<span class="sens">sensitive</span>':''}
                 ${(x.options||[]).length?`<div class="opts">options: ${x.options.map(o=>esc(String(o).slice(0,26))).join(" · ")}</div>`:''}</td>
             <td><code>${esc(x.type)}</code></td>
-            <td>${x.answer?esc(String(x.answer).slice(0,60)):'<i>—</i>'}</td>
+            <td>${x.answer?esc(String(x.answer).slice(0,60)):'<i>—</i>'}${x.answer&&x.filled===false?' <span class="notland">not accepted</span>':''}</td>
             <td><span class="srcpill">${esc(x.source)}</span></td>
             <td class="whycell">${esc(x.why||"")}</td></tr>`).join("")}</tbody>
         </table>`:''}

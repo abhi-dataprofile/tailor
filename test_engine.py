@@ -790,6 +790,41 @@ def test_answers_by_index():
           ab._opt_match("true", ["Yes", "No"]) == 0 and ab._opt_match("false", ["Yes", "No"]) == 1)
 
 
+def test_banded_and_combo_options():
+    section("Banded options · \"4\" belongs in \"0-6 Years\"")
+    import apply_browser as ab, os as _os
+    bands = ["0-6 Years", "6-8 Years", "8-10 Years", "10-12 Years", "12-14 Years", "Over 14 Years"]
+    for ans, want in (("0", "0-6 Years"), ("4", "0-6 Years"), ("7", "6-8 Years"),
+                      ("9.5", "8-10 Years"), ("15", "Over 14 Years")):
+        i = ab._opt_match(ans, bands)
+        check(f"{ans} years → {want}", i is not None and bands[i] == want,
+              bands[i] if i is not None else "(blank)")
+    other = ["Less than 1 year", "1-3 years", "3-5 years", "5+ years"]
+    check("0.5 → Less than 1 year", other[ab._opt_match("0.5", other)] == "Less than 1 year")
+    check("8 → 5+ years", other[ab._opt_match("8", other)] == "5+ years")
+    check("a non-numeric answer does not force a band",
+          ab._opt_match("Market rate", ["0-5 LPA", "5-10 LPA"]) is None)
+    # mapping "0" to "no" turned zero years into a non-match
+    check("true/false only maps on an actual yes/no control",
+          ab._opt_match("true", ["Yes", "No"]) == 0 and
+          ab._opt_match("0", bands) == 0, "0 must still be a number against bands")
+
+    src = open(_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "apply_browser.py")).read()
+    # typing into a fixed-list combo filters it to "No options" and the field is left blank
+    check("a combobox is opened and read before anything is typed",
+          "def _visible_options" in src and
+          src.index("opts = _visible_options(page)") < src.index('el.type(v[:48]'))
+    check("a short fixed list with no match is left alone, not typed into",
+          "is not one of:" in src)
+
+    # a planned answer is not a filled field
+    bsrc = open(_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "board_agents.py")).read()
+    check("the decision table reports what actually landed",
+          'd["filled"] = False' in bsrc and "has no matching option" in bsrc)
+    dash = open(_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "dashboard.html")).read()
+    check("the UI flags an answer the form refused", "not accepted" in dash)
+
+
 def test_dead_feed_is_not_silent():
     section("Job sources · a DEAD feed must not masquerade as 'no openings'")
     import ats
@@ -822,7 +857,7 @@ def main():
               test_option_matching_is_precise,
               test_hosted_model_and_saved_answers_are_actually_used,
               test_answer_bank_questionnaire, test_never_claims_experience_you_dont_have,
-              test_answers_by_index):
+              test_answers_by_index, test_banded_and_combo_options):
         try:
             t()
         except Exception as e:

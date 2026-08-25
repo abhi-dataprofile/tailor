@@ -653,6 +653,38 @@ def _opt_score(ans, text):
     noise = 0.20 * (len(st - sa) / max(1, len(st)))   # how much the option adds
     return max(0.0, lead + cover - noise)
 
+def _range_match(ans, texts):
+    """Pick the option whose numeric RANGE contains the answer.
+
+    Experience and salary questions are usually banded — "0-6 Years", "6-8 Years", "Over 14
+    Years" — so a candidate's plain "4" matches none of them by text and the field is left
+    blank. Returns an index, or None when the answer is not a number or nothing contains it."""
+    m = re.search(r"\d+(?:\.\d+)?", str(ans or ""))
+    if not m:
+        return None
+    n = float(m.group(0))
+    best = None
+    for i, t in enumerate(texts):
+        low = str(t or "").lower()
+        nums = [float(x) for x in re.findall(r"\d+(?:\.\d+)?", low)]
+        if not nums:
+            continue
+        if re.search(r"\b(over|more than|above|greater than|\+)\b|\d\+", low) and len(nums) == 1:
+            lo, hi = nums[0], float("inf")
+            if n > lo:
+                best = i if best is None else best
+        elif re.search(r"\b(under|less than|below|fewer than|up to)\b", low) and len(nums) == 1:
+            lo, hi = 0.0, nums[0]
+            if n < hi:
+                return i
+        elif len(nums) >= 2:
+            lo, hi = min(nums[0], nums[1]), max(nums[0], nums[1])
+            if lo <= n <= hi:
+                return i
+        elif len(nums) == 1 and n == nums[0]:
+            return i
+    return best
+
 _BOOLish = {"true": "yes", "false": "no", "y": "yes", "n": "no", "1": "yes", "0": "no"}
 
 def _opt_match(ans, texts, threshold=0.34):
@@ -663,13 +695,16 @@ def _opt_match(ans, texts, threshold=0.34):
     a = str(ans or "").strip().lower()
     if not a:
         return None
-    a = _BOOLish.get(a, a)               # a model may answer a Yes/No control with true/false
+    # true/false -> Yes/No, but ONLY on an actual yes/no control: mapping "0" to "no" turned a
+    # numeric answer of 0 years into a non-match against banded options.
+    if a in _BOOLish and any(str(t).strip().lower() in ("yes", "no") for t in texts):
+        a = _BOOLish[a]
     # ties break toward the EARLIER option: autocompletes and selects list their most
     # relevant choice first, so position is real signal when scores are equal.
     scored = sorted(((_opt_score(a, t), -i) for i, t in enumerate(texts)), reverse=True)
     if scored and scored[0][0] >= threshold:
         return -scored[0][1]
-    return None
+    return _range_match(a, texts)        # banded options: "4" -> "0-6 Years"
 
 _DATE_WORDS = re.compile(r"\b(date|start|available|availability|when can you (start|begin)|earliest|notice period)\b", re.I)
 
@@ -897,12 +932,54 @@ def _is_combobox(el):
     except Exception:
         return False
 
+def _visible_options(page):
+    """Every option currently rendered by an open listbox, as (text, handle)."""
+    out = []
+    for sel in ("[role=option]", "li[role=option]", "[role=listbox] li",
+                "[class*=option i]", "[class*=menu i] li", "[class*=result i] li"):
+        try:
+            els = [o for o in page.query_selector_all(sel) if o.is_visible()]
+        except Exception:
+            continue
+        for o in els:
+            try:
+                t = (o.inner_text() or "").strip()
+            except Exception:
+                continue
+            if t and t.lower() != "no options" and not any(t == x for x, _ in out):
+                out.append((t, o))
+        if out:
+            break
+    return out
+
 def _fill_combobox(page, el, value):
     """Type into a typeahead and select the best-matching option from its popup listbox.
     Filling the value directly wouldn't register the selection in a React combobox."""
     v = str(value).strip()
     if not v:
         return False
+    # FIRST look at what the control actually offers. Many "combos" are really selects with a
+    # fixed list; typing filters it to nothing ("No options") and the field is left blank even
+    # though the right choice was sitting there. Open it, read the list, and match.
+    try:
+        el.click(); page.wait_for_timeout(450)
+        opts = _visible_options(page)
+        if opts:
+            texts = [t for t, _ in opts]
+            mi = _opt_match(v, texts)
+            if mi is not None:
+                opts[mi][1].click(); page.wait_for_timeout(200)
+                return True
+            if len(texts) <= 25:
+                # a short fixed list that genuinely has no match — typing will not help
+                print(f"  [combo] {v!r} is not one of: {', '.join(texts[:8])}")
+                try:
+                    el.press("Escape")
+                except Exception:
+                    pass
+                return False
+    except Exception:
+        pass
     try:
         el.click(); el.fill(""); el.type(v[:48], delay=25)
         page.wait_for_timeout(750)   # let async options load

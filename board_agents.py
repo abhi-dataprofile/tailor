@@ -359,17 +359,32 @@ def plan(schema, bank, context="", extra_prompt="", trace=None):
         answered = ab._llm_answer_fields(context, fields, extra_prompt, trace=llm_trace) or {}
         if trace is not None:
             trace["llm"] = llm_trace
+        def _norm_q(x):
+            return re.sub(r"[^a-z0-9 ]+", "", str(x or "").lower()).strip()
         by_label = {f["label"]: f for f in ask}
+        by_norm = {_norm_q(f["label"]): f for f in ask}
+        claimed = set()
         for label, ans in answered.items():
-            f = by_label.get(label)
-            if not f:                                   # small models reword the key they echo
-                lf = ab._fp(label); best, bs = None, 0
+            f = by_label.get(label) or by_norm.get(_norm_q(label))
+            if f is None:
+                # A model sometimes rewords the key it echoes back, so a fuzzy match is needed —
+                # but it must be TIGHT. A loose one handed the answer for "years of experience
+                # overall" ("4+") to "years of hands-on Book Keeping experience", which would
+                # have claimed four years of bookkeeping the candidate has never done.
+                lf = ab._fp(label)
+                best, bs = None, 0.0
                 for cand in ask:
-                    sh = len(lf & ab._fp(cand["label"]))
-                    if sh > bs and sh >= 2:
-                        bs, best = sh, cand
-                f = best
-            if f and str(ans).strip():
+                    if cand["key"] in claimed or cand["label"] in answered:
+                        continue                       # already has its own answer
+                    cf = ab._fp(cand["label"])
+                    if not cf or not lf:
+                        continue
+                    overlap = len(lf & cf) / max(1, min(len(lf), len(cf)))
+                    if overlap > bs:
+                        bs, best = overlap, cand
+                f = best if bs >= 0.8 else None         # near-identical wording only
+            if f and f["key"] not in claimed and str(ans).strip():
+                claimed.add(f["key"])
                 out[f["key"]] = {"answer": str(ans).strip(), "source": "llm"}
                 why[f["key"]] = "answered by the model from your résumé and stated facts"
         for f in ask:

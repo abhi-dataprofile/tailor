@@ -381,7 +381,13 @@ ANSWER_KEYS = [
  ("relocate", ["relocat"]),
  ("remote_ok", ["come into the office","work remotely","work from a remote","in-person","onsite","hybrid policy"]),
  ("start_date", ["when can you start","start date","available to start","notice period","how much notice"]),
- ("years_experience", ["years of experience","years of relevant","how many years"]),
+ # ONLY general-experience questions. "how many years" alone matched "years of hands-on Book
+ # Keeping experience" and answered it with the candidate's total years — claiming four years
+ # of bookkeeping they have never done. A general fact must never answer a specific one.
+ ("years_experience", ["years of experience in overall","years of overall experience",
+                       "total years of experience","years of professional experience",
+                       "how many years of experience do you have in overall",
+                       "years of relevant experience","overall experience"]),
  ("salary_expectation", ["salary","compensation expectation","desired pay","expected compensation"]),
  ("over_18", ["over 18","at least 18","18 years of age"]),
  ("gender", ["gender"]),
@@ -434,8 +440,19 @@ def _fp(text):
         out.add(w)
     return out
 
+# a question that names a specific domain must not be answered from a general fact
+_SPECIFIC_YEARS = re.compile(
+    r"years?\b[^?]{0,40}\b(?:of|in|on|with|working on)\b\s*(?!experience\b)(?!relevant\b)"
+    r"(?!professional\b)(?!overall\b)(?!total\b)[a-z]", re.I)
+
 def _answer_for(label, bank):
     low = (label or "").lower()
+    if "year" in low and _SPECIFIC_YEARS.search(low):
+        # "years of hands-on Book Keeping experience", "years working on Quickbooks, GAAP" —
+        # only the candidate can say, and a general total would be a false claim.
+        generic = re.search(r"\b(overall|in total|total|professional|relevant)\b", low)
+        if not generic:
+            return None
     for key, syns in ANSWER_KEYS:
         for sy in syns:
             if sy in low:
@@ -636,6 +653,8 @@ def _opt_score(ans, text):
     noise = 0.20 * (len(st - sa) / max(1, len(st)))   # how much the option adds
     return max(0.0, lead + cover - noise)
 
+_BOOLish = {"true": "yes", "false": "no", "y": "yes", "n": "no", "1": "yes", "0": "no"}
+
 def _opt_match(ans, texts, threshold=0.34):
     """Index of the option that BEST matches `ans`, or None if nothing is close enough.
 
@@ -644,6 +663,7 @@ def _opt_match(ans, texts, threshold=0.34):
     a = str(ans or "").strip().lower()
     if not a:
         return None
+    a = _BOOLish.get(a, a)               # a model may answer a Yes/No control with true/false
     # ties break toward the EARLIER option: autocompletes and selects list their most
     # relevant choice first, so position is real signal when scores are equal.
     scored = sorted(((_opt_score(a, t), -i) for i, t in enumerate(texts)), reverse=True)
@@ -728,6 +748,35 @@ def _is_refusal(v):
     v = str(v or "").strip()
     return (not v) or bool(_REFUSAL_RE.match(v)) or len(v) > 400
 
+def _answers_by_id(raw, labels):
+    """Read {"answers":[{"id":1,"a":"…"}]} back onto the question labels.
+
+    Asking for answers keyed by the question TEXT meant matching on whatever the model echoed
+    — reworded, re-punctuated, snake_cased, or nested one level too high. An index is
+    unambiguous, and a model is far more reliable at returning one entry per id than at
+    reproducing long question strings."""
+    if not raw:
+        return {}
+    m = re.search(r'"answers"\s*:\s*(\[[\s\S]*?\])', raw)
+    if not m:
+        return {}
+    try:
+        rows = json.loads(m.group(1))
+    except Exception:
+        return {}
+    out = {}
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        try:
+            i = int(r.get("id", 0)) - 1
+        except Exception:
+            continue
+        v = r.get("a", r.get("answer", ""))
+        if 0 <= i < len(labels) and isinstance(v, str) and v.strip():
+            out[labels[i]] = v.strip()
+    return out
+
 def _merge_answer_objects(raw):
     """Collect EVERY {"answers": {...}} block in the model's output and merge them.
 
@@ -755,11 +804,17 @@ def _merge_answer_objects(raw):
                     out[k] = v
         except Exception:
             continue
-    if not out:                                   # a single well-formed object
-        m = re.search(r"\{[\s\S]*\}", raw)
+    # Models also emit answers as SIBLINGS of the "answers" object rather than inside it:
+    #   {"answers":{...}, "current_location":"Buffalo, NY", "Are you ready to work…":"true"}
+    # Reading only the answers block discarded most of a good reply. Take every top-level
+    # string too; the caller matches them against the real questions and ignores the rest.
+    m = re.search(r"\{[\s\S]*\}", raw)
+    if m:
         try:
-            obj = json.loads(m.group(0)) if m else {}
-            out = {k: v for k, v in (obj.get("answers") or obj).items() if isinstance(v, str)}
+            obj = json.loads(m.group(0))
+            for k, v in (obj or {}).items():
+                if k != "answers" and isinstance(v, str) and v.strip() and k not in out:
+                    out[k] = v
         except Exception:
             pass
     return out
@@ -779,36 +834,46 @@ def _llm_answer_fields(context, fields, extra="", trace=None):
         if not llm.available():
             return {}
         qs = []
-        for f in fields:
-            q = {"q": f["label"]}
+        for i, f in enumerate(fields, 1):
+            q = {"id": i, "q": f["label"]}
             if f.get("choose_one_of") or f.get("options"):
                 q["choose_one_of"] = (f.get("choose_one_of") or f.get("options"))[:14]
             if f.get("candidate_said"):
                 q["candidate_said"] = f["candidate_said"]
             qs.append(q)
-        sysp = ("You are completing a job application AS the candidate, using ONLY the candidate "
-                "material provided. If the material does not support an answer, return an empty string "
-                "for that question — NEVER invent facts, dates, numbers, employers, or credentials. "
-                "Answer with the VALUE ONLY — never a sentence explaining that you cannot answer; "
-                "if you cannot answer, return an empty string. "
-                "FACTS (employers, dates, degrees, numbers) must come from the material. "
-                "WILLINGNESS questions are different: 'are you happy to work N days in the office', "
-                "'can you commute', 'are you willing to relocate', 'do you accept the location' are "
-                "about intent, not history. Answer those affirmatively from the candidate's stated "
-                "preferences unless the material says otherwise — a candidate applying to a role has "
-                "by definition accepted its stated working arrangement. "
-                "For questions with choose_one_of, reply with EXACTLY one of those options. When a "
-                "question carries candidate_said, that is the candidate's own answer in their words — "
-                "map it onto the closest listed option rather than discarding it. Keep "
-                "free-text answers concise, first-person and professional. "
-                + (("Extra guidance from the candidate: " + extra.strip()[:800] + " ") if extra else "")
-                + 'Return STRICT JSON: {"answers":{"<exact question text>":"<answer>"}}.')
-        userp = "CANDIDATE MATERIAL:\n" + context[:3800] + "\n\nQUESTIONS (JSON):\n" + json.dumps(qs)
+        sysp = (
+            "You are completing a job application on behalf of the candidate, from the material below.\n"
+            "Return an entry for EVERY question asked. The value is what should be typed into that "
+            "field — no explanations, no apologies, no sentences about what you cannot determine. "
+            "If a question genuinely cannot be answered, use an empty string.\n\n"
+            "HOW TO DECIDE:\n"
+            "1. FACTS about the candidate's history (employers, titles, dates, degrees) come from the "
+            "material only. Never invent one. If the material shows no experience in the thing being "
+            "asked about, the answer is an empty string — do NOT substitute a related number. "
+            "'Years of bookkeeping experience' is not answered by years of software experience.\n"
+            "2. DERIVED facts are fine when the material supports them: total years of experience from "
+            "a summary or from role dates; whether the candidate is currently working from an unfinished "
+            "role; their current or last employer and title.\n"
+            "3. WILLINGNESS and PREFERENCE questions — 'are you ready to work EMEA shift timings', "
+            "'happy to work N days in the office', 'willing to relocate', 'preferred location', 'when "
+            "can you join' — are about intent, not history. Someone applying to a role has accepted its "
+            "stated working arrangement, so answer these affirmatively and concretely from the "
+            "candidate's stated context. These are NOT facts to look up; leaving them blank is wrong.\n"
+            "4. OPEN questions like 'reason for job change' should get a short, professional, "
+            "first-person answer grounded in the candidate's situation.\n"
+            "5. Never state or imply compensation, immigration status, or demographic information "
+            "unless it appears verbatim in the material.\n"
+            "6. choose_one_of: reply with EXACTLY one of the listed options. candidate_said is the "
+            "candidate's own answer — map it onto the closest listed option rather than discarding it.\n"
+            + (("\nExtra guidance from the candidate: " + extra.strip()[:800] + "\n") if extra else "")
+            + '\nReturn STRICT JSON and NOTHING else, with one entry per question id, in order:\n'
+              '{"answers":[{"id":1,"a":"<value>"},{"id":2,"a":""}]}')
+        userp = "CANDIDATE MATERIAL:\n" + context[:6000] + "\n\nQUESTIONS (JSON):\n" + json.dumps(qs)
         raw = llm.gen(sysp, userp, json_mode=True, temp=0, max_tokens=800)
         if trace is not None:
             trace.update({"provider": (llm.available() or ["?"])[0], "system_prompt": sysp,
                           "context": context[:3800], "questions": qs, "raw_response": (raw or "")[:4000]})
-        merged = _merge_answer_objects(raw)
+        merged = _answers_by_id(raw, [f["label"] for f in fields]) or _merge_answer_objects(raw)
         kept = {k: v.strip() for k, v in merged.items()
                 if isinstance(v, str) and not _is_refusal(v)}
         if trace is not None:
@@ -1309,10 +1374,14 @@ def submit(job, answers, resume_html, standing=None, dry=True, headless=True, ti
             # e.g. "international student on F-1/OPT". Sensitive Qs still come ONLY from standing.
             _facts = {k: v for k, v in (standing or {}).items() if k not in ("_custom", "_persona") and v}
             _persona = (standing or {}).get("_persona") or os.environ.get("APPLY_PERSONA", "")
-            context = ("Role: " + (job.get("title") or "") + "\nCandidate résumé:\n"
-                       + _strip_html(resume_html)[:3400]
-                       + ("\nKnown facts: " + json.dumps(_facts) if _facts else "")
-                       + ("\nCandidate context (assume this where a non-sensitive question is ambiguous): " + _persona if _persona else ""))
+            # Facts and persona come FIRST and are never truncated. Putting the résumé first
+            # let it consume the whole budget — the persona was being cut off mid-word ("…: I"),
+            # so the model answered with no idea who it was speaking for.
+            context = ("Role: " + (job.get("title") or "")
+                       + ("\nCandidate context (assume this where a non-sensitive question is ambiguous): "
+                          + _persona if _persona else "")
+                       + ("\nKnown facts (use these directly): " + json.dumps(_facts) if _facts else "")
+                       + "\nCandidate résumé:\n" + _strip_html(resume_html)[:3000])
             # PLAN-THEN-FILL: read every field into a schema, answer the whole form in one
             # pass (real facts first, then a single LLM call that sees all the questions
             # together), then apply it. Falls back to the incremental filler on any error so

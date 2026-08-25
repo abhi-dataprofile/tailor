@@ -744,6 +744,52 @@ def test_answer_bank_questionnaire():
         check(f"answers: {q[:46]}", got == want, f"got {got!r}, wanted {want!r}")
 
 
+def test_never_claims_experience_you_dont_have():
+    section("False claims · a general fact must never answer a specific question")
+    import apply_browser as ab, board_agents as bg
+    bank = {"years_experience": "4"}
+    for q in ("How many years of experience do you have in overall?",
+              "Total years of professional experience"):
+        check(f"general question answered: {q[:44]}", ab._answer_for(q, bank) == "4")
+    for q in ("How many years of hands-on Book Keeping experience do you have?",
+              "How many years experience working on Quickbooks, US Taxation, GAAP?",
+              "How many years of Python experience?"):
+        check(f"specific question NOT answered from a general total: {q[:40]}",
+              ab._answer_for(q, bank) is None, str(ab._answer_for(q, bank)))
+
+    # the same leak via the model path: it answers one question, a loose fuzzy match hands
+    # that answer to a different one
+    ab._llm_answer_fields = lambda ctx, fields, extra="", trace=None: {
+        "How many years of experience do you have in overall?": "4+"}
+    schema = [
+        {"key": "a", "label": "How many years of experience do you have in overall?", "type": "text",
+         "required": True, "options": [], "sensitive": False, "_el": None},
+        {"key": "b", "label": "How many years of hands-on Book Keeping experience do you have?",
+         "type": "text", "required": True, "options": [], "sensitive": False, "_el": None},
+    ]
+    p = bg.plan(schema, {}, context="x")
+    check("the model's answer is used for its own question", (p.get("a") or {}).get("answer") == "4+")
+    check("it does not leak onto a different question", "b" not in p, str(p.get("b")))
+
+
+def test_answers_by_index():
+    section("Model I/O · indexed questions, so nothing is lost in matching")
+    import apply_browser as ab
+    labels = ["First question?", "Second question?", "Third question?"]
+    raw = '{"answers":[{"id":1,"a":"one"},{"id":2,"a":""},{"id":3,"a":"three"}]}'
+    got = ab._answers_by_id(raw, labels)
+    check("answers come back onto their questions by id",
+          got == {"First question?": "one", "Third question?": "three"}, str(got))
+    check("a malformed reply yields nothing rather than raising",
+          ab._answers_by_id("nonsense", labels) == {})
+    # a model also emits answers as SIBLINGS of the answers object
+    sib = '{"answers":{"A":"1"},"current_location":"Buffalo, NY"}'
+    check("top-level answers are not discarded",
+          ab._merge_answer_objects(sib).get("current_location") == "Buffalo, NY")
+    check("true/false map onto a Yes/No control",
+          ab._opt_match("true", ["Yes", "No"]) == 0 and ab._opt_match("false", ["Yes", "No"]) == 1)
+
+
 def test_dead_feed_is_not_silent():
     section("Job sources · a DEAD feed must not masquerade as 'no openings'")
     import ats
@@ -775,7 +821,8 @@ def main():
               test_board_agents_plan_then_fill, test_nav_is_identical_everywhere, test_activity_actions_actually_work, test_decision_trace_is_recorded,
               test_option_matching_is_precise,
               test_hosted_model_and_saved_answers_are_actually_used,
-              test_answer_bank_questionnaire):
+              test_answer_bank_questionnaire, test_never_claims_experience_you_dont_have,
+              test_answers_by_index):
         try:
             t()
         except Exception as e:

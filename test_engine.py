@@ -531,6 +531,39 @@ def test_nav_is_identical_everywhere():
               f'{src.count("<script")}/{src.count("</script>")}')
 
 
+def test_activity_actions_actually_work():
+    section("Activity actions · the three that silently did nothing")
+    import os as _os
+    root = _os.path.dirname(_os.path.abspath(__file__))
+    dash = open(_os.path.join(root, "dashboard.html")).read()
+    srv = open(_os.path.join(root, "serve.py")).read()
+    ab_src = open(_os.path.join(root, "apply_browser.py")).read()
+
+    # "Add answers" opened an element styled by classes the dashboard never defined, so it
+    # rendered unstyled at the bottom of the page — indistinguishable from nothing happening.
+    check("the dashboard defines the modal styles it uses",
+          ".modal{" in dash and ".modal-card{" in dash)
+    check("the dialog is a real overlay", "position:fixed" in dash.split(".modal{", 1)[1][:90])
+
+    # "Details" crashed on rows written after `filled` became a list.
+    blk = srv.split('"filled": (', 1)[1][:220] if '"filled": (' in srv else ""
+    check("details tolerates both the old dict and the new list shape",
+          "isinstance(filled, dict)" in blk, blk[:80])
+
+    # "résumé PDF" 404'd exactly when it was needed most: the agent could not attach it.
+    seg = ab_src.split("if resume_html:", 1)[1][:400] if "if resume_html:" in ab_src else ""
+    check("the tailored PDF is saved even when it cannot be attached",
+          "saved_pdf = resume_pdf" in seg, seg[:90])
+    check("the saved path is reported regardless of attachment",
+          '"resume_pdf": saved_pdf' in ab_src)
+    check("the interactive apply records the PDF path too",
+          '"resume_pdf": res.get("resume_pdf")' in srv)
+
+    # auto-apply from the dashboard ran with NO résumé unless one had been tailored by hand
+    check("auto-apply builds a résumé from the profile when none is supplied",
+          "resume_build.build_resume_html(_prof" in srv)
+
+
 def test_dead_feed_is_not_silent():
     section("Job sources · a DEAD feed must not masquerade as 'no openings'")
     import ats
@@ -559,7 +592,7 @@ def main():
               test_never_submits_without_resume, test_consent_prefers_rejecting,
               test_opening_a_posting_is_not_an_application,
               test_answers_can_be_saved_and_reused, test_navigates_to_the_real_form,
-              test_board_agents_plan_then_fill, test_nav_is_identical_everywhere):
+              test_board_agents_plan_then_fill, test_nav_is_identical_everywhere, test_activity_actions_actually_work):
         try:
             t()
         except Exception as e:

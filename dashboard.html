@@ -168,6 +168,17 @@ a{color:var(--primary-tint)}
 @media(max-width:640px){.nav{display:none}}
 .rq-badge{display:inline-block;min-width:17px;padding:0 5px;margin-left:6px;border-radius:9px;
   background:var(--accent,#1f6f4f);color:#fff;font:600 11px/17px ui-sans-serif,system-ui;text-align:center}
+/* The Add-answers dialog used .modal/.modal-card copied from the workbench, but the
+   dashboard never defined them — so it rendered unstyled at the bottom of the page and
+   looked like nothing happened. */
+.modal{position:fixed;inset:0;z-index:220;display:flex;align-items:center;justify-content:center;
+  padding:22px;background:rgba(26,36,32,.42);backdrop-filter:blur(3px)}
+.modal-card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:24px 26px;
+  width:100%;max-width:640px;max-height:86vh;overflow-y:auto;box-shadow:0 24px 60px rgba(0,0,0,.22)}
+.modal-card h3{font:700 19px 'Fraunces',serif;margin:0 0 4px}
+.modal-card .in{width:100%;border:1px solid var(--line);border-radius:9px;padding:9px 11px;
+  font:400 13.5px "Inter",system-ui,sans-serif;background:#fff}
+.modal-card .in:focus{outline:none;border-color:var(--primary,#1f6f4f)}
 </style>
 </head>
 <body>

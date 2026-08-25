@@ -976,7 +976,9 @@ def application_detail(user, job_id):
             "confirmed_via": rec.get("confirmed_via") or "",
             "events": rec.get("events") or [],
             "answers": answers,
-            "filled": [k for k, v in filled.items() if v],
+            # `filled` is a list of labels now; older rows still hold {field: bool}
+            "filled": ([k for k, v in filled.items() if v] if isinstance(filled, dict)
+                       else [str(x) for x in (filled or [])]),
             "submitted_fields": [f.get("label") or f.get("name") for f in submitted_fields if isinstance(f, dict)][:20],
             "unfilled": [u.get("label") for u in (rec.get("unfilled_required") or []) if isinstance(u, dict) and u.get("label")],
             "has_shot": bool(rec.get("screenshot")),
@@ -1362,6 +1364,7 @@ class H(SimpleHTTPRequestHandler):
             venv = os.path.join(HERE, ".venv", "bin", "python")
             py = venv if os.path.exists(venv) else sys.executable
             apply_url = body.get("url", "")
+            jr = []
             if body.get("job_id") and sb and sb.is_configured():   # prefer the clean Greenhouse form
                 try:
                     jr = sb.select("jobs", {"id": f"eq.{body['job_id']}", "limit": "1",
@@ -1370,10 +1373,28 @@ class H(SimpleHTTPRequestHandler):
                         apply_url = canonical_apply_url(jr[0]) or apply_url
                 except Exception:
                     pass
-            payload = json.dumps({"job": {"url": apply_url, "title": body.get("label", "")},
+            # Without a tailored résumé the client sends "" — which meant auto-apply from the
+            # dashboard ran with NO résumé at all. Build one from the saved profile instead.
+            _resume = body.get("resume_html", "") or ""
+            if not _resume:
+                try:
+                    import resume_build
+                    _prof = (sb.select("profiles", {"user_id": f"eq.{user}", "select": "*", "limit": "1"}) or [{}])[0]
+                    if _prof:
+                        _resume = resume_build.build_resume_html(_prof, {})
+                except Exception:
+                    _resume = ""
+            _jobmeta = {"url": apply_url, "title": body.get("label", ""), "id": body.get("job_id")}
+            try:
+                if jr:
+                    _jobmeta["company_slug"] = jr[0].get("company_slug")
+                    _jobmeta["vendor"] = jr[0].get("vendor")
+            except Exception:
+                pass
+            payload = json.dumps({"job": _jobmeta,
                                   "answers": body.get("answers", {}) or {},
                                   "standing": body.get("standing", {}) or {},
-                                  "resume_html": body.get("resume_html", "") or "", "dry": not bool(body.get("live"))})
+                                  "resume_html": _resume, "dry": not bool(body.get("live"))})
             try:
                 p = subprocess.run([py, "-c",
                     "import sys,json,apply_browser as ab;print(json.dumps(ab.submit(**json.load(sys.stdin))))"],
@@ -1384,6 +1405,7 @@ class H(SimpleHTTPRequestHandler):
             except Exception as e:
                 res = {"ok": False, "status": "error", "detail": str(e)[:200]}
             rec = {"at": time.strftime("%Y-%m-%d %H:%M:%S"), "user": user, "backend": "browser",
+                   "resume_pdf": res.get("resume_pdf") or "",
                    "url": body.get("url"), "job": body.get("label"), "job_id": body.get("job_id"),
                    "live": bool(body.get("live")), "ok": bool(res.get("ok")), "status": res.get("status"),
                    "detail": res.get("detail"), "screenshot": res.get("screenshot"),

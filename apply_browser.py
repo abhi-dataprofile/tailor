@@ -1047,6 +1047,7 @@ def submit(job, answers, resume_html, standing=None, dry=True, headless=True, ti
             }
             # résumé upload (render a real PDF, attach to the vendor's file input)
             attached = False
+            saved_pdf = ""
             # categorize file inputs: résumé goes to a non-cover input; a cover-labeled input
             # (if any, and if we have a cover letter) gets the cover-letter PDF — never crossed.
             file_inputs = []
@@ -1060,10 +1061,19 @@ def submit(job, answers, resume_html, standing=None, dry=True, headless=True, ti
             # browser needs ~10-20s to reach the form, so waiting for it up front wasted that
             # whole window. Resolve it here, at the one moment we actually need the bytes.
             resume_html = _resolve_resume(resume_html)
-            if resume_input and resume_html:
-                _render_pdf(ctx, resume_html, resume_pdf)
+            # Render and KEEP the PDF whether or not there's a field to attach it to. A board
+            # with no upload field (or one the agent can't reach) is exactly when the candidate
+            # needs the tailored résumé in hand to finish by hand — throwing it away there was
+            # backwards.
+            if resume_html:
                 try:
-                    resume_input.set_input_files(resume_pdf); attached = True
+                    _render_pdf(ctx, resume_html, resume_pdf)
+                    saved_pdf = resume_pdf
+                except Exception:
+                    saved_pdf = ""
+            if resume_input and saved_pdf:
+                try:
+                    resume_input.set_input_files(saved_pdf); attached = True
                 except Exception:
                     attached = False
             # cover letter: upload to a dedicated file input, else fill a "cover letter" textarea
@@ -1144,7 +1154,7 @@ def submit(job, answers, resume_html, standing=None, dry=True, headless=True, ti
             if not form_ready:
                 warnings.append("almost none of the standard fields (name/email/phone) were present")
             prepared = {"filled": filled, "resume_attached": attached, "screenshot": shot,
-                        "resume_pdf": resume_pdf if attached else "",
+                        "resume_pdf": saved_pdf,      # kept even when it couldn't be attached
                         "unfilled_required": unfilled_required, "warnings": warnings,
                         "form_ready": form_ready}
             if plan_out:                       # what the agent read, decided, and completed

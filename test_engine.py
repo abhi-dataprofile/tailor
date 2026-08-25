@@ -331,6 +331,26 @@ def test_opening_a_posting_is_not_an_application():
           'Not applied yet' in open(_os.path.join(root, "app_status.py")).read())
 
 
+def test_answers_can_be_saved_and_reused():
+    section("Add answers · saved to the profile, reused everywhere")
+    import os as _os
+    root = _os.path.dirname(_os.path.abspath(__file__))
+    srv = open(_os.path.join(root, "serve.py")).read()
+    dash = open(_os.path.join(root, "dashboard.html")).read()
+    check("an /api/answers endpoint exists", '"/api/answers"' in srv)
+    blk = srv.split('"/api/answers"', 1)[1][:2200]
+    check("answers MERGE into standing (never replace the profile)", "standing[\"_custom\"] = custom" in blk)
+    check("writes with upsert, so a missing profile row isn't a silent no-op",
+          "sb.upsert(\"profiles\"" in blk)
+    check("reports failure when nothing was written", "couldn't write to your profile" in blk)
+    check("known labels become real standing keys", "_STANDING_KEY" in blk)
+    check("'Add answers' opens a dialog, not a dead link",
+          "openAnswers(" in dash and 'href="index.html#profile">Add answers' not in dash)
+    check("the feed carries the questions AND their options",
+          '"unfilled_q"' in srv)
+    check("the receipt records which fields were filled", '"filled": [k for k, v in' in srv)
+
+
 def test_dead_feed_is_not_silent():
     section("Job sources · a DEAD feed must not masquerade as 'no openings'")
     import ats
@@ -357,7 +377,8 @@ def main():
               test_crawler_throttle, test_crawler_cycle_on_dead_db, test_read_resilience,
               test_dead_feed_is_not_silent, test_form_not_ready_is_not_success,
               test_never_submits_without_resume, test_consent_prefers_rejecting,
-              test_opening_a_posting_is_not_an_application):
+              test_opening_a_posting_is_not_an_application,
+              test_answers_can_be_saved_and_reused):
         try:
             t()
         except Exception as e:

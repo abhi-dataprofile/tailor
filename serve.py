@@ -224,6 +224,19 @@ def multipart(fields, files):
 
 # Questions that must NEVER be auto-answered by the model — legal / demographic /
 # comp. If any required question matches, the flow refuses and asks the human.
+# question label (lowercased) -> the standing key the browser engine looks up, so an answer
+# given once becomes a real fact rather than only a verbatim question match.
+_STANDING_KEY = {
+    "phone": "phone", "phone number": "phone", "mobile number": "phone",
+    "when can you start a new role?": "start_date", "start date": "start_date",
+    "when can you start?": "start_date", "available start date": "start_date",
+    "linkedin": "linkedin", "linkedin profile": "linkedin", "github": "github",
+    "website": "website", "portfolio": "portfolio",
+    "current location": "current_location", "location": "current_location",
+    "salary expectation": "salary_expectation", "expected salary": "salary_expectation",
+    "years of experience": "years_experience", "notice period": "start_date",
+}
+
 SENSITIVE = re.compile(
     r"(sponsor|visa|work authoriz|authoriz[^.]{0,20}\bwork\b|require[^.]{0,20}sponsor|"
     r"salary|compensation expectation|desired (?:pay|salary|compensation)|"
@@ -764,6 +777,13 @@ def applications_feed(user):
             "at": a.get("submitted_at") or a.get("created_at") or "",
             "next_retry_at": a.get("next_retry_at") or "",
             "unfilled": [u.get("label") for u in (rec.get("unfilled_required") or []) if isinstance(u, dict) and u.get("label")][:6],
+            # full question objects (label + options) so the Add-answers dialog can offer the
+            # real choices instead of a bare text box on a multiple-choice question
+            "unfilled_q": [{"label": u.get("label"), "options": u.get("options") or [], "type": u.get("type")}
+                           for u in (rec.get("unfilled_required") or [])
+                           if isinstance(u, dict) and u.get("label")][:8],
+            "filled": rec.get("filled") or [],
+            "resume_attached": bool(rec.get("resume_attached")),
             "has_shot": bool(rec.get("screenshot")),
             "has_resume": a["job_id"] in have_resume,
         })
@@ -1119,6 +1139,41 @@ class H(SimpleHTTPRequestHandler):
                 return self._json(200, {"ok": True})
             except Exception as e:
                 return self._json(200, {"ok": False, "status": "error", "detail": str(e)[:200]})
+        if self.path == "/api/answers":
+            # Save answers to the questions the agent couldn't complete. MERGES into
+            # profiles.data.standing (never replaces the profile) so the answers are reused
+            # on every future form — including reworded versions on other boards.
+            if not (sb and sb.is_configured()):
+                return self._json(200, {"ok": False, "status": "no_db"})
+            n = int(self.headers.get("Content-Length", 0))
+            body = json.loads(self.rfile.read(n) or b"{}")
+            user = _req_user(self)
+            answers = {k: v for k, v in (body.get("answers") or {}).items() if str(v).strip()}
+            if not answers:
+                return self._json(200, {"ok": False, "detail": "no answers given"})
+            try:
+                prof = (sb.select("profiles", {"user_id": f"eq.{user}", "select": "data", "limit": "1"}) or [{}])[0]
+                data = prof.get("data") or {}
+                standing = dict(data.get("standing") or {})
+                custom = dict(standing.get("_custom") or {})
+                for q, v in answers.items():
+                    v = str(v).strip()
+                    key = _STANDING_KEY.get(q.strip().lower())
+                    if key:                      # a known field (phone, start date…) → a real key
+                        standing[key] = v
+                    custom[q] = v                # and always keep the verbatim Q→A for rewordings
+                standing["_custom"] = custom
+                data["standing"] = standing
+                # upsert, not update: a PATCH matching no row silently succeeds, which would
+                # report "saved" while writing nothing.
+                wrote = sb.upsert("profiles", [{"user_id": user, "data": data}],
+                                  on_conflict="user_id", update=True)
+                _USER_CACHE.pop(user, None)
+                if not wrote:
+                    return self._json(200, {"ok": False, "detail": "couldn't write to your profile"})
+                return self._json(200, {"ok": True, "saved": len(answers)})
+            except Exception as e:
+                return self._json(200, {"ok": False, "detail": str(e)[:200]})
         if self.path == "/api/track":
             # Record a manual/self-apply in the applications table so it shows in the
             # Activity view WITH the résumé the user applied with. Never downgrades a
@@ -1275,7 +1330,12 @@ class H(SimpleHTTPRequestHandler):
                    "url": body.get("url"), "job": body.get("label"), "job_id": body.get("job_id"),
                    "live": bool(body.get("live")), "ok": bool(res.get("ok")), "status": res.get("status"),
                    "detail": res.get("detail"), "screenshot": res.get("screenshot"),
-                   "unfilled_required": res.get("unfilled_required")}
+                   "unfilled_required": res.get("unfilled_required"),
+                   # what the agent ACTUALLY completed — the UI's "Fields filled" was always
+                   # blank because these were computed by the browser and then dropped here.
+                   "filled": [k for k, v in (res.get("filled") or {}).items() if v],
+                   "resume_attached": bool(res.get("resume_attached")),
+                   "warnings": res.get("warnings") or []}
             log_receipt(rec)
             _mirror_application(user, body.get("job_id"), res, body.get("answers", {}) or {}, rec,
                                 body.get("resume_html", "") or "")

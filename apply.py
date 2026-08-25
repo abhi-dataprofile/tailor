@@ -266,7 +266,11 @@ def _record(user_id, job, res, ans, apply_id, blocked, resume_html=""):
            "backend": res.get("backend"), "dry_run": bool(serve.DRY_RUN), "answers": ans, "ok": bool(res.get("ok")),
            "status": res.get("status"), "detail": res.get("detail"), "screenshot": res.get("screenshot"),
            "resume_sha": rsha, "resume_len": len(resume_html or ""),
-           "submitted_fields": res.get("submitted"), "sensitive_sent": res.get("sensitive_sent"), "blocked": blocked}
+           "submitted_fields": res.get("submitted"), "sensitive_sent": res.get("sensitive_sent"), "blocked": blocked,
+           "filled": [k for k, v in (res.get("filled") or {}).items() if v],      # what got completed
+           "resume_attached": bool(res.get("resume_attached")),
+           "unfilled_required": res.get("unfilled_required") or [],
+           "warnings": res.get("warnings") or []}
     serve.log_receipt(rec)
     try:
         status = classify(res)

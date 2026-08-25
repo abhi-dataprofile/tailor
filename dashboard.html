@@ -539,7 +539,7 @@ function activityActions(a){
   const rz=a.has_resume?`<button class="btn ghost" style="padding:6px 11px" onclick="viewActivityResume(${a.job_id})" title="The exact résumé saved for this application">📄 résumé</button>`:"";
   if(a.status==="awaiting_review")return `<button class="btn accent" style="padding:6px 11px" onclick="submitReviewed(${a.job_id},this)" title="Send this prepared application now">Submit ↗</button>`+rz+open;
   if(a.status==="blocked_captcha")return `<a class="btn accent" style="padding:6px 11px" href="${esc(a.url)}" target="_blank" rel="noopener">Solve captcha ↗</a>`+rz+open;
-  if(a.status==="needs_you")return `<a class="btn" style="padding:6px 11px" href="index.html#profile">Add answers</a>`+rz+open;
+  if(a.status==="needs_you")return `<button class="btn" style="padding:6px 11px" onclick='openAnswers(${JSON.stringify(String(a.job_id))},${JSON.stringify(JSON.stringify(a.unfilled_q&&a.unfilled_q.length?a.unfilled_q:(a.unfilled||[])))})' title="Answer what the agent couldn't, and it will reuse your answers everywhere">Add answers</button>`+rz+open;
   if(a.status==="submitted_unconfirmed")return `<button class="btn" style="padding:6px 11px" onclick="markApplied(${a.job_id})" title="Confirm you received an application acknowledgement">Mark applied ✓</button>`+rz+open;
   return rz+open;
 }
@@ -730,7 +730,61 @@ function resumeHtml(){try{const d=JSON.parse(localStorage.getItem("tailor_ollama
      full résumé from the saved profile — a name/summary/skills snippet is not a résumé and
      must never be attached to an application as though it were one. */
   return s.resumeDoc||"";
-}catch(e){return "<html><body>Resume</body></html>";}}
+}catch(e){return "<html><body>Resume
+<!-- ── Add answers: the questions the agent could not complete ───────────────── -->
+<div id="ansModal" class="modal" style="display:none" onclick="if(event.target===this)closeAnswers()">
+  <div class="modal-card" style="max-width:640px">
+    <h3 style="margin:0 0 4px">Answer what the agent couldn't</h3>
+    <p class="sub" style="margin:0 0 14px">Saved to your profile and reused on every future
+      application — including reworded versions of the same question on other boards.</p>
+    <div id="ansList"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+      <button class="btn" onclick="closeAnswers()">Cancel</button>
+      <button class="btn accent" id="ansSave" onclick="saveAnswers()">Save answers</button>
+    </div>
+  </div>
+</div>
+<script>
+let ANS_JOB=null;
+function openAnswers(jobId,unfilledJson){
+  ANS_JOB=jobId;
+  let qs=[];try{qs=JSON.parse(unfilledJson||"[]")||[]}catch(e){qs=[]}
+  const list=document.getElementById("ansList");
+  if(!qs.length){list.innerHTML='<div class="sub">No specific questions were recorded — open the form to see what it needs.</div>';}
+  else{
+    list.innerHTML=qs.map((q,i)=>{
+      const label=(typeof q==="string")?q:(q.label||"(question)");
+      const opts=(q&&q.options)||[];
+      const field=opts.length
+        ? `<select class="in" id="ans_${i}"><option value="">— choose —</option>`+
+          opts.map(o=>`<option>${esc(String(o))}</option>`).join("")+`</select>`
+        : `<input class="in" id="ans_${i}" placeholder="Your answer">`;
+      return `<div style="margin:0 0 12px"><div style="font-weight:600;margin:0 0 5px">${esc(label)}</div>
+              <input type="hidden" id="ansq_${i}" value="${esc(label)}">${field}</div>`;
+    }).join("");
+  }
+  document.getElementById("ansModal").style.display="flex";
+}
+function closeAnswers(){document.getElementById("ansModal").style.display="none";ANS_JOB=null;}
+async function saveAnswers(){
+  const answers={};
+  document.querySelectorAll('[id^="ansq_"]').forEach(h=>{
+    const i=h.id.split("_")[1], el=document.getElementById("ans_"+i);
+    if(el&&el.value.trim())answers[h.value]=el.value.trim();
+  });
+  if(!Object.keys(answers).length){toast("Nothing to save yet");return;}
+  const btn=document.getElementById("ansSave");btn.disabled=true;btn.textContent="Saving…";
+  try{
+    const r=await fetch("/api/answers",{method:"POST",headers:{"Content-Type":"application/json",...authHeaders()},
+      body:JSON.stringify({job_id:ANS_JOB,answers})}).then(x=>x.json());
+    if(r.ok){toast(`Saved ${r.saved} answer(s) — the agent will reuse them`);closeAnswers();loadActivity();}
+    else toast(r.detail||"Couldn't save");
+  }catch(e){toast("Couldn't save — "+e.message)}
+  btn.disabled=false;btn.textContent="Save answers";
+}
+window.openAnswers=openAnswers;window.closeAnswers=closeAnswers;window.saveAnswers=saveAnswers;
+</script>
+</body></html>";}}
 function isLive(){
   if($("liveMode")&&$("liveMode").checked)return true;
   try{if(localStorage.getItem("tailor_live")==="1")return true;}catch(e){}

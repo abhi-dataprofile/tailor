@@ -248,6 +248,22 @@ a{color:var(--primary-tint)}
 .row .pill.cat{border-color:transparent;background:rgba(0,0,0,.05)}
 .row .pill.auto{color:var(--primary-tint);border-color:var(--primary-soft);background:var(--primary-soft)}
 .row .pill.hit{background:var(--exc-bg);color:var(--exc);border-color:transparent}
+.row .pill.new{background:var(--marker);border-color:transparent;color:#1a2420;font-weight:600}
+@media(max-width:900px){
+  .rail{flex-direction:row;flex-wrap:nowrap;overflow-x:auto;gap:6px;padding:2px 0 8px;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+  .rail::-webkit-scrollbar{display:none}
+  .rail .rl-you,.rail .rl-h{display:none}
+  .rail .rl-d{flex:0 0 auto;border:1px solid var(--line);border-radius:100px;padding:6px 12px;width:auto}
+  .rail .rl-d .chev{display:none}
+  .rail .rl-subs{display:contents}
+  .rail .rl-s{flex:0 0 auto;border:1px solid var(--line-soft);border-radius:100px;padding:6px 11px;white-space:nowrap}
+  .row{grid-template-columns:1fr;gap:10px;padding:12px 14px}
+  .row .t a{white-space:normal}
+  .row .r{justify-content:flex-end}
+  .row .acts{opacity:1}
+  .feed .fd-h{flex-wrap:wrap;gap:4px 10px;font-size:12.5px}
+  .feed .fd-h .right{margin-left:0;width:100%}
+}
 .row .r{display:flex;align-items:center;gap:8px;flex-shrink:0}
 .row .sc{font:600 13px "JetBrains Mono",ui-monospace,monospace;min-width:44px;text-align:right}
 .row .sc small{font-weight:500;opacity:.55;font-size:10px}
@@ -587,6 +603,7 @@ async function refresh(){
   try{
     const p=window.TailorFilters?TailorFilters.buildParams():new URLSearchParams();
     const q=($("fQ").value||"").trim();if(q)p.set("q",q);
+    const mins=parseInt(p.get("mins")||"0",10);if(mins>=1440){p.delete("mins");p.set("days",String(Math.round(mins/1440)));}
     p.set("sort",($("fSort")&&$("fSort").value==="new")?"new":"relevant");
     if(BOARD.cat)p.set("category",BOARD.cat);
     if(BOARD.sub)p.set("sub",BOARD.sub);
@@ -596,6 +613,7 @@ async function refresh(){
       const got=(r.jobs||[]).map(j=>({...j,company:j.company_slug,desc:j.description}));
       JOBS=BOARD.page>0?JOBS.concat(got):got;
       LAST_FACETS=r.facets||{};BOARD.total=r.count||0;BOARD.more=!!r.has_more;
+      BOARD.poolSize=r.pool_size||0;BOARD.poolLimit=r.pool_limit||0;BOARD.indexTotal=r.index_total;BOARD.updated=r.index_updated;
       if(window.TailorFilters&&r.facets)TailorFilters.setFacets({countries:r.facets.countries||[],companies:r.facets.companies||[]});
       /* First load: lead with YOUR domain. The server classifies your profile the same way
          it classifies jobs, so an AI engineer opens on Engineering › AI / ML — not on
@@ -607,7 +625,8 @@ async function refresh(){
         if(!BOARD.cat&&!want&&r.facets&&r.facets.my_domain&&tree[r.facets.my_domain]){
           BOARD.cat=r.facets.my_domain;BOARD.sub=null;_running=false;return refresh();}}}
     else{DB=false;$("srcTxt").textContent="live discovery";await discover(q);}
-  }finally{_running=false;$("btnRefresh").disabled=false;$("prog").style.display="none";renderAll();}
+  }finally{_running=false;$("btnRefresh").disabled=false;$("prog").style.display="none";
+    if(BOARD.pendingSearch){BOARD.pendingSearch=false;setTimeout(search,0);}renderAll();}
 }
 /* ---- auth (share the workbench's magic-link session) ---- */
 /* ── who is here? auth is on when the server has Supabase auth; then only a signed-in
@@ -804,11 +823,12 @@ function applyBadge(a){
   return "";
 }
 let _searchT=null;
-function search(){BOARD.page=0;skeleton();refresh();}
+function search(){if(_running){BOARD.pendingSearch=true;return;}BOARD.page=0;skeleton();refresh();}
 function searchSoon(){clearTimeout(_searchT);_searchT=setTimeout(search,450);}   // live search as you type
 function boardGo(cat,sub){BOARD.cat=cat||null;BOARD.sub=sub||null;BOARD.page=0;
   try{localStorage.setItem("tailor_board",JSON.stringify({cat:BOARD.cat,sub:BOARD.sub}));}catch(e){}
   skeleton();refresh();}
+function isNew(j){const d=j.date||j.posted_at||"";const t=Date.parse(String(d).includes("T")?d:d+"T00:00:00Z");return !isNaN(t)&&(Date.now()-t)<36*3600e3;}
 function skeleton(){const f=$("feed");if(!f||BOARD.page>0)return;
   f.innerHTML=`<div class="fd-h"><b>Loading…</b></div>`+Array.from({length:6},(_,i)=>`<div class="row sk"><div class="t"><div class="b" style="width:${46+((i*17)%30)}%"></div><div class="b" style="width:${28+((i*11)%20)}%;height:10px"></div></div><div class="r"><div class="b" style="width:36px"></div></div></div>`).join("");}
 /* ── Job drawer: the whole posting, what you match and what you're missing, and the actions ── */
@@ -824,7 +844,7 @@ function openJob(url){const j=findJob(url);if(!j)return;DRAWER_URL=url;const p=p
   const desc=plainDesc(j.desc);
   $("drawer").innerHTML=`
     <div class="dh"><div style="min-width:0"><h3>${esc(j.title)}</h3>
-      <div class="dm"><span class="ava" style="background:${avaCol(j.company)}">${esc(initials(j.company))}</span><span>${esc(j.company||"")}</span>
+      <div class="dm"><span class="ava" style="background:${avaCol(j.company)}">${esc(initials(j.company))}</span><span>${esc(coName(j.company))}</span>
         ${j.location?`<span>·</span><span>${esc(j.location)}</span>`:""}${ago(j.date||j.posted_at)?`<span>·</span><span>${ago(j.date||j.posted_at)}</span>`:""}
         ${j.category?`<span class="pill cat" style="font:500 11px Inter;padding:2px 7px;border-radius:6px;background:rgba(0,0,0,.05)">${esc(j.category)}${j.subcategory&&j.subcategory!=="Other"?" › "+esc(j.subcategory):""}</span>`:""}</div></div>
       <button class="x" onclick="closeJob()" title="Close (Esc)">×</button></div>
@@ -875,7 +895,7 @@ function renderRail(){
     h+=`<div class="rl-you"><b>For you</b><span>${esc(mine)}${mysub?" › "+esc(mysub):""} — from your profile</span>
       <div class="pick"><button class="btn" style="padding:5px 10px;font-size:12px" data-cat="${esc(mine)}"${mysub?` data-sub="${esc(mysub)}"`:""} onclick="boardGo(this.dataset.cat,this.dataset.sub)">Show mine</button>
       <button class="btn ghost" style="padding:5px 10px;font-size:12px" onclick="boardGo(null,null)">Everything</button></div></div>`;}
-  h+=`<div class="rl-h">Categories</div>`;
+  h+=`<div class="rl-h">Categories${BOARD.poolSize?` <span style="text-transform:none;letter-spacing:0;font-weight:500">· newest ${fmtN(BOARD.poolSize)}</span>`:""}</div>`;
   h+=`<button class="rl-d${!BOARD.cat?" on":""}" onclick="boardGo(null,null)"><span>All jobs</span><span class="n">${total}</span></button>`;
   for(const d of names){
     const node=tree[d];const open=(BOARD.cat===d)||(d===mine&&!BOARD.cat);
@@ -889,16 +909,30 @@ function renderRail(){
   }
   $("rail").innerHTML=h;
 }
+const fmtN=n=>(n==null?"":Number(n).toLocaleString("en-US"));
+/* "cloudflare" → "Cloudflare", "metropolitan-commercial-bank" → "Metropolitan Commercial Bank" */
+const BRANDS={openai:"OpenAI",gitlab:"GitLab",github:"GitHub",linkedin:"LinkedIn",paypal:"PayPal",doordash:"DoorDash",airbnb:"Airbnb",mongodb:"MongoDB",hashicorp:"HashiCorp",databricks:"Databricks",deepmind:"DeepMind",youtube:"YouTube",ebay:"eBay",iheartmedia:"iHeartMedia",snowflakecomputing:"Snowflake",servicenow:"ServiceNow",coinbase:"Coinbase",jpmorgan:"JPMorgan"};
+function coName(slug){const s=String(slug||"");if(!s)return"";if(BRANDS[s.toLowerCase()])return BRANDS[s.toLowerCase()];if(/[A-Z ]/.test(s))return s;
+  return s.split(/[-_.]+/).map(w=>BRANDS[w]||(/^(ai|ml|hr|it|us|uk|llc|inc)$/.test(w)?w.toUpperCase():w.charAt(0).toUpperCase()+w.slice(1))).join(" ");}
+function scopeLine(){
+  const it=BOARD.indexTotal, ps=BOARD.poolSize;
+  const mins=(window.TailorFilters&&TailorFilters.get("mins"))||"";
+  const win=mins==="43200"?"posted in the last 30 days":mins==="20160"?"posted in the last 14 days":mins==="10080"?"posted in the last 7 days":mins==="1440"?"posted today":mins?"in this window":"in the index";
+  if(it==null||!ps)return"";
+  if(BOARD.cat)return` <span style="opacity:.75">in the newest ${fmtN(ps)}</span>`;
+  return it>ps?` <span style="opacity:.75">— newest ${fmtN(ps)} of ${fmtN(it)} ${win}</span>`:` <span style="opacity:.75">${win}</span>`;}
 function renderCards(){
   renderRail();
   const p=profile();const anon=!canUse();
   $("matchSub").textContent=anon?"fresh postings straight from company career pages — search anything":p.skills.length?`ranked against your ${p.skills.length} résumé skills`:"add skills in the workbench for real matching";
   const l=visible();
   const where=BOARD.cat?`<b>${esc(BOARD.cat)}${BOARD.sub?" › "+esc(BOARD.sub):""}</b>`:"<b>All jobs</b>";
-  let h=`<div class="fd-h">${where}<span>${BOARD.total} ${BOARD.total===1?"job":"jobs"}</span>
-    <div class="right"><span>${anon||($("fSort")&&$("fSort").value==="new")?"newest first":"best match first"}</span></div></div>`;
+  const scope=scopeLine();
+  let h=`<div class="fd-h">${where}<span>${fmtN(BOARD.total)} ${BOARD.total===1?"posting":"postings"}${scope}</span>
+    <div class="right"><span>${anon||($("fSort")&&$("fSort").value==="new")?"newest first":"best match first"}${BOARD.updated?` · updated ${ago(BOARD.updated)}`:""}</span></div></div>`;
   if(!l.length){
-    h+=`<div class="fd-empty"><b>Nothing here yet</b>${BOARD.cat?"Try another category, or clear the filters above.":"Hit <b>Refresh matches</b> — or open the workbench and save your profile first."}</div>`;
+    const q=($("fQ").value||"").trim();
+    h+=`<div class="fd-empty"><b>${q?`No postings match “${esc(q)}”`:"Nothing here yet"}</b>${q?`Try a broader word, or <button class="btn" style="padding:4px 10px;font-size:12px;vertical-align:middle" onclick="$('fQ').value='';search()">clear the search</button>`:BOARD.cat?"Try another category, or clear the filters above.":anon?"Try widening the date filter above.":"Hit <b>Refresh matches</b> — or open the workbench and save your profile first."}</div>`;
     $("feed").innerHTML=h;return;}
   h+=l.map(j=>{
     const [tc,tl]=tier(j.score);const sp=(j.sponsor||j.sponsorship);
@@ -908,7 +942,7 @@ function renderCards(){
       <div class="t">
         <a href="${esc(j.url)}" target="_blank" rel="noopener" title="${esc(j.title)}" onclick="event.stopPropagation()">${esc(j.title)}</a>
         <div class="m"><span class="ava" style="background:${avaCol(j.company)}">${esc(initials(j.company))}</span>
-          <span>${esc(j.company||"")}</span>${j.location?`<span class="sep">·</span><span>${esc(j.location)}</span>`:""}${when?`<span class="sep">·</span><span>${when}</span>`:""}
+          <span>${esc(coName(j.company))}</span>${j.location?`<span class="sep">·</span><span>${esc(j.location)}</span>`:""}${when?`<span class="sep">·</span><span>${when}</span>`:""}${isNew(j)&&!anon&&$("fSort")&&$("fSort").value!=="new"?`<span class="pill new">New</span>`:""}
           ${j.subcategory&&j.subcategory!=="Other"?`<span class="pill cat">${esc(j.subcategory)}</span>`:""}
           ${j.applyability==="auto"?`<span class="pill auto">⚡ auto-apply</span>`:""}
           ${j.remote?`<span class="pill">remote</span>`:""}${sp==="no"?`<span class="pill">no sponsorship</span>`:sp==="yes"?`<span class="pill">sponsors</span>`:""}
@@ -1060,8 +1094,11 @@ function toggleAutoSubmit(){
 (function(){try{if(localStorage.getItem("tailor_live")==="1"){const c=document.getElementById("liveMode");if(c){c.checked=true;}}}catch(e){}renderAutoSubmitPill();})();
 function applyAuthChrome(){
   const anon=!canUse();
-  ["autoSubmitPill","liveTog","topFive","fSort"].forEach(id=>{const el=$(id);if(el)el.style.display=anon?"none":"";});
-  if(anon&&$("fSort")&&$("fSort").value!=="new"){$("fSort").value="new";search();}   // visitors: newest postings, no résumé ranking
+  ["autoSubmitPill","liveTog","topFive","fSort","btnRefresh","planStat","srcStat"].forEach(id=>{const el=$(id);if(el)el.style.display=anon?"none":"";});
+  if(window.TailorFilters){TailorFilters.configure({hide:anon?["only"]:[]});
+    if(anon&&!TailorFilters.get("mins"))TailorFilters.set("mins","43200");}   // visitors: this month's postings, newest first
+  if(anon&&$("fSort"))$("fSort").value="new";
+  if(anon)search();
   if($("signInBtn"))$("signInBtn").style.display=anon?"":"none";
   if(window.renderNav)renderNav(document.querySelector(".view.on")&&document.querySelector(".view.on").id==="v-apps"?"apps":"find");
   if(anon&&!$("v-dash").classList.contains("on"))showView("dash");
@@ -1072,7 +1109,7 @@ async function loadPlan(){
   _cfgResolve();
   window._cfg=c;const plan=c.plan||"local";
   applyAuthChrome();
-  if($("planStat")&&plan!=="local"){$("planStat").style.display="";$("planStat").innerHTML=`<span class="dot" style="background:${plan==="free"?"var(--ink-faint)":"var(--exc-ring)"}"></span>${plan} plan`;}
+  if($("planStat")&&plan!=="local"&&canUse()){$("planStat").style.display="";$("planStat").innerHTML=`<span class="dot" style="background:${plan==="free"?"var(--ink-faint)":"var(--exc-ring)"}"></span>${plan} plan`;}
   if($("upgradeBtn")&&c.billing&&plan==="free")$("upgradeBtn").style.display="";
 }
 async function upgrade(){
@@ -1436,7 +1473,7 @@ async function saveAnswerBank(){
   }catch(e){toast("Couldn't save — "+e.message);}
   b.disabled=false; b.textContent="Save answers";
 }
-window.boardGo=boardGo;window.search=search;window.searchSoon=searchSoon;window.openJob=openJob;window.closeJob=closeJob;window.boardMore=boardMore;window.openAnswerBank=openAnswerBank;window.closeAnswerBank=closeAnswerBank;window.saveAnswerBank=saveAnswerBank;
+window.boardGo=boardGo;window.coName=coName;window.search=search;window.searchSoon=searchSoon;window.openJob=openJob;window.closeJob=closeJob;window.boardMore=boardMore;window.openAnswerBank=openAnswerBank;window.closeAnswerBank=closeAnswerBank;window.saveAnswerBank=saveAnswerBank;
 </script>
 
 </body>

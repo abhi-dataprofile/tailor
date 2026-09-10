@@ -1197,8 +1197,21 @@ def test_public_board_private_everything_else():
     check("deep-link back after sign-in only accepts our own pages", "function safeNext" in idx and "(dashboard|index)" in idx)
     check("premium features stay visible and are labelled PRO (auto-apply, agent, review queue, networking)",
           dash.count("pro:true") == 3 and idx.count("pro:true") == 3 and 'class="jact premium"' in dash and '<span class="pro">PRO</span>' in dash)
+    import supabase_client as _sbc
+    check("the board browses a 3,000-posting pool fetched in 1,000-row chunks and reports the true index total",
+          serve._POOL >= 3000 and serve._CHUNK == 1000 and callable(getattr(_sbc, "count", None))
+          and '"index_total"' in open(os.path.join(root, "serve.py")).read())
+    check("board copy is honest about scope, names companies properly, flags new postings",
+          "function scopeLine" in dash and "function coName" in dash and 'class="pill new"' in dash)
+    fjs = open(os.path.join(root, "filters.js")).read()
+    check("filter bar can hide the premium auto-apply chip and preset the date window",
+          "function configure" in fjs and "function set(key, val)" in fjs and 'hidden.includes("only")' in fjs)
+    sp = serve._spread([{"company_slug": c, "n": i} for i, c in enumerate("aaaaab")], max_run=2)
+    check("the feed never shows more than two rows in a row from one company (rows deferred, not dropped)",
+          [r["company_slug"] for r in sp][:3] == ["a", "a", "b"] and len(sp) == 6 and sorted(r["n"] for r in sp) == list(range(6)))
+    check("the board's Date chip filters by posting date", 'p.set("days",String(Math.round(mins/1440)))' in dash)
     check("visitors get newest-first search, no résumé ranking (they have no résumé)",
-          'oninput="searchSoon()"' in dash and '$("fSort").value="new";search();' in dash and 'const hits=anon?[]' in dash)
+          'oninput="searchSoon()"' in dash and 'if(anon&&$("fSort"))$("fSort").value="new";' in dash and 'const hits=anon?[]' in dash)
 
 
 def main():

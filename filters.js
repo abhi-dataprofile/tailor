@@ -14,6 +14,7 @@ window.TailorFilters = (function () {
 
   const S = { mins: "", countries: [], workplace: [], companies: [], etypes: [], jobtypes: [], sponsor: "", only: "" };
   let facets = { countries: [], companies: [] }, onChange = function () { }, host = null;
+  let hidden = [];   // chip keys the page has asked to hide (e.g. "only" for visitors — auto-apply is premium)
 
   const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
@@ -66,7 +67,7 @@ window.TailorFilters = (function () {
       multiChip("jobtypes", "Job type", JOBTYPE, false) +
       multiChip("etypes", "Employment", EMPTYPE, false) +
       radioChip("sponsor", "Sponsorship", SPON) +
-      radioChip("only", "Auto-apply", APPLYABLE) +
+      (hidden.includes("only") ? "" : radioChip("only", "Auto-apply", APPLYABLE)) +
       (active() ? `<button class="tf-clear" data-clear>Clear all (${active()})</button>` : "");
     wire();
   }
@@ -114,6 +115,9 @@ window.TailorFilters = (function () {
     document.head.appendChild(st);
   }
 
+  function configure(o) { hidden = (o && o.hide) || []; render(); }
+  function set(key, val) { if (key in S) { S[key] = val; render(); } }
+  function get(key) { return S[key]; }
   return {
     mount(container, onChangeCb) {
       injectCSS();
@@ -122,6 +126,6 @@ window.TailorFilters = (function () {
       onChange = onChangeCb || function () { };
       render();
     },
-    buildParams, setFacets, clearAll, state: S
+    buildParams, setFacets, clearAll, configure, set, get, state: S
   };
 })();

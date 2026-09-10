@@ -60,6 +60,26 @@ def _request(method, path, params=None, body=None, prefer=None, timeout=45):
 def select(table, params=None, timeout=45):
     return _request("GET", table, params=params, timeout=timeout) or []
 
+def count(table, params=None, timeout=20):
+    """Exact row count for a filter (no rows transferred) — PostgREST's Content-Range."""
+    if not is_configured():
+        raise RuntimeError("Supabase not configured")
+    url = URL + "/rest/v1/" + table
+    q = dict(params or {}); q["select"] = q.get("select") or "id"
+    url += "?" + urllib.parse.urlencode(q, safe="*,.()")
+    req = urllib.request.Request(url, headers=_headers({"Prefer": "count=exact", "Range": "0-0", "Range-Unit": "items"}))
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            cr = r.headers.get("Content-Range") or "*/0"
+    except urllib.error.HTTPError as e:
+        if e.code == 416:            # empty result set → "*/0"
+            return 0
+        raise RuntimeError(f"Supabase {e.code}")
+    try:
+        return int(cr.split("/")[1])
+    except Exception:
+        return 0
+
 def upsert(table, rows, on_conflict, update=True):
     """Idempotent insert. update=False → 'ignore-duplicates' (only genuinely new rows)."""
     if not rows:

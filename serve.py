@@ -610,7 +610,8 @@ def _loc_param(loc):
 # (the big fields), so a page loads fast; descriptions are fetched only for the shown page.
 _SLIM = ("id,source_uid,vendor,company_slug,title,location,country,remote,url,"
          "sponsorship,posted_at,first_seen_at,department,employment_type,compensation,skills")
-_POOL = 300      # rank within the most-recent N matching postings ("latest first") — fast
+_POOL = 3000     # rank/browse within the newest N matching postings (~3 days of the index); fetched in 1,000-row chunks
+_CHUNK = 1000    # PostgREST's max-rows per request
 _PAGE = 60
 
 def _recency_bonus(posted_at):
@@ -629,6 +630,55 @@ def _recency_bonus(posted_at):
 _POOL_CACHE = {}   # filter-key -> (expiry_ts, rows). Pool is user-independent, so it's shared.
 _POOL_TTL = 45     # seconds
 
+def _fetch_pool(params):
+    """The newest _POOL rows for a filter, in parallel _CHUNK-row pages (PostgREST caps a request at 1,000)."""
+    from concurrent.futures import ThreadPoolExecutor
+    want = int(params.get("limit") or _POOL)
+    offsets = list(range(0, want, _CHUNK))
+    def one(off):
+        q = dict(params); q["limit"] = str(min(_CHUNK, want - off)); q["offset"] = str(off)
+        return sb.select("jobs", q, timeout=14)
+    if len(offsets) == 1:
+        return one(0)
+    with ThreadPoolExecutor(max_workers=len(offsets)) as ex:
+        chunks = list(ex.map(one, offsets))
+    out = []
+    for c in chunks:
+        out.extend(c or [])
+        if c is not None and len(c) < _CHUNK:
+            break                                              # ran out of rows — later chunks are empty
+    return out
+
+_COUNT_CACHE = {}   # filter-key → (expiry, total)
+def _index_total(params):
+    """How many postings match the filter in the WHOLE index (the pool is only the newest _POOL)."""
+    q = {k: v for k, v in params.items() if k not in ("select", "order", "limit", "offset")}
+    key = json.dumps(q, sort_keys=True); now = time.time(); hit = _COUNT_CACHE.get(key)
+    if hit and hit[0] > now:
+        return hit[1]
+    try:
+        n = sb.count("jobs", q, timeout=12)
+    except Exception:
+        n = hit[1] if hit else None
+    _COUNT_CACHE[key] = (now + 120, n)
+    if len(_COUNT_CACHE) > 500:
+        _COUNT_CACHE.clear()
+    return n
+
+_UPDATED_CACHE = [0, None]
+def _index_updated():
+    """When the crawler last added a posting — the board's 'updated … ago'."""
+    now = time.time()
+    if _UPDATED_CACHE[0] > now:
+        return _UPDATED_CACHE[1]
+    try:
+        rows = sb.select("jobs", {"select": "first_seen_at", "order": "first_seen_at.desc", "limit": "1"}, timeout=8)
+        val = rows[0]["first_seen_at"] if rows else None
+    except Exception:
+        val = _UPDATED_CACHE[1]
+    _UPDATED_CACHE[:] = [now + 120, val]
+    return val
+
 def _cached_pool(params):
     key = json.dumps(params, sort_keys=True)
     now = time.time()
@@ -636,7 +686,7 @@ def _cached_pool(params):
     if hit and hit[0] > now:
         return hit[1]
     try:
-        rows = sb.select("jobs", params, timeout=14)            # fail fast — never hang the UI
+        rows = _fetch_pool(params)                             # fail fast — never hang the UI
     except Exception:
         if hit:                                                 # DB slow/overloaded → serve the last-known
             _POOL_CACHE[key] = (now + 20, hit[1])               # back off the DB for 20s
@@ -831,7 +881,9 @@ def jobs_query(qs, user="local"):
     elif wset == {"onsite"}:            params["remote"] = "eq.false"
     elif remote:                        params["remote"] = "eq.true"
     if mins.isdigit() and int(mins) > 0:
-        params["first_seen_at"] = f"gte.{time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(time.time() - int(mins)*60))}"
+        # bucket the cutoff to 5 minutes so consecutive requests share one pool-cache key
+        cutoff = (time.time() - int(mins)*60) // 300 * 300
+        params["first_seen_at"] = f"gte.{time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(cutoff))}"
     elif days.isdigit() and int(days) > 0:
         params["posted_at"] = f"gte.{time.strftime('%Y-%m-%d', time.gmtime(time.time() - int(days)*86400))}"
     if loc:
@@ -863,6 +915,7 @@ def jobs_query(qs, user="local"):
     else:   # 'relevant' (default): accurate match, freshest first — a blend
         pool.sort(key=lambda j: (j["score"] + _recency_bonus(j.get("posted_at")),
                                  j.get("posted_at") or ""), reverse=True)
+    pool = _spread(pool)          # a wall of one company's postings reads like a broken feed
     # facets from the whole matched pool
     from collections import Counter
     ets = Counter(j.get("employment_type") for j in pool if j.get("employment_type"))
@@ -888,7 +941,40 @@ def jobs_query(qs, user="local"):
     # NOTE: descriptions are intentionally omitted from the list (they're the big field).
     # The card doesn't need them; /api/job fetches the full description on demand at Add/Apply.
     return {"ok": True, "count": total, "page": page, "size": _PAGE,
-            "has_more": start + _PAGE < total, "facets": facets, "jobs": page_jobs}
+            "has_more": start + _PAGE < total, "facets": facets, "jobs": page_jobs,
+            # honesty about scope: the pool is the newest _POOL matching postings; the index holds more
+            "pool_size": len(_cat_pool), "pool_limit": _POOL,
+            "index_total": _index_total(params), "index_updated": _index_updated()}
+
+def _spread(rows, key="company_slug", max_run=2):
+    """Keep order, but never more than `max_run` consecutive rows from one company: a
+    crawl batch lands dozens of Cloudflare postings on the same date, and newest-first
+    would show a page of one logo. Rows that would extend a run are deferred, not dropped."""
+    out, held = [], []
+    def run_len():
+        n = 0
+        for r in reversed(out):
+            if r.get(key) != cur:
+                break
+            n += 1
+        return n
+    for r in rows:
+        cur = r.get(key)
+        # first flush any held row whose company now fits
+        i = 0
+        while i < len(held):
+            h = held[i]
+            if not out or sum(1 for x in out[-max_run:] if x.get(key) == h.get(key)) < max_run:
+                out.append(h); held.pop(i)
+            else:
+                i += 1
+        cur = r.get(key)
+        if len(out) >= max_run and all(x.get(key) == cur for x in out[-max_run:]):
+            held.append(r)
+        else:
+            out.append(r)
+    out.extend(held)
+    return out
 
 def job_detail(qs):
     """Full single job (with description) — fetched on demand when the user adds/applies."""

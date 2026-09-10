@@ -298,6 +298,10 @@ a{color:var(--primary-tint)}
 .drawer .tags{display:flex;flex-wrap:wrap;gap:5px}
 .drawer .tag.miss{background:#fbeede;color:#9a6a1a}
 .row{cursor:pointer}.row .t a{position:relative;z-index:1}
+/* premium features stay visible — labelled, never hidden */
+.pro{font:600 9px "JetBrains Mono",ui-monospace,monospace;letter-spacing:.08em;padding:1px 5px;border-radius:4px;background:var(--marker);color:#1a2420;vertical-align:middle;margin-left:4px}
+.nav button .pro{margin-left:6px}
+.jact.premium{border-color:var(--marker);background:#fffbe8}
 </style>
 </head>
 <body>
@@ -319,8 +323,8 @@ a{color:var(--primary-tint)}
   <!-- ===================== DASHBOARD ===================== -->
   <div class="view on" id="v-dash">
     <div class="filters">
-      <div class="search-wrap"><input class="in search" id="fQ" placeholder="Search by title or keyword…" onkeydown="if(event.key==='Enter')refresh()"><span class="kbd">/</span></div>
-      <select class="in" id="fSort" onchange="refresh()"><option value="match">Relevant &amp; recent</option><option value="new">Newest</option></select>
+      <div class="search-wrap"><input class="in search" id="fQ" placeholder="Search any title — engineer, nurse, sales, designer…" onkeydown="if(event.key==='Enter')search()" oninput="searchSoon()"><span class="kbd">/</span></div>
+      <select class="in" id="fSort" onchange="search()"><option value="match">Relevant &amp; recent</option><option value="new">Newest</option></select>
       <button class="btn accent" id="btnRefresh" onclick="refresh()"><svg class="ic" viewBox="0 0 24 24"><polyline points="21 4 21 9 16 9"/><path d="M20 13a8 8 0 1 1-2.3-5.7L21 9"/></svg> Refresh matches</button>
     </div>
     <div class="filters filters-2" style="align-items:flex-start">
@@ -799,6 +803,9 @@ function applyBadge(a){
   if(a==="manual")return '<span class="tag ap-manual" title="Unsupported / account-required — apply yourself">Manual</span>';
   return "";
 }
+let _searchT=null;
+function search(){BOARD.page=0;skeleton();refresh();}
+function searchSoon(){clearTimeout(_searchT);_searchT=setTimeout(search,450);}   // live search as you type
 function boardGo(cat,sub){BOARD.cat=cat||null;BOARD.sub=sub||null;BOARD.page=0;
   try{localStorage.setItem("tailor_board",JSON.stringify({cat:BOARD.cat,sub:BOARD.sub}));}catch(e){}
   skeleton();refresh();}
@@ -811,7 +818,7 @@ function plainDesc(raw){let t=String(raw||"");const ta=document.createElement("t
 let DRAWER_URL=null;
 function openJob(url){const j=findJob(url);if(!j)return;DRAWER_URL=url;const p=profile();
   const hay=((j.title||"")+" "+(j.desc||"")).toLowerCase();
-  const hit=p.skills.filter(s=>hay.includes(s.toLowerCase()));
+  const anon=!canUse();const hit=anon?[]:p.skills.filter(s=>hay.includes(s.toLowerCase()));
   const named=(j.skills||[]).filter(Boolean);const miss=named.filter(s=>!p.skills.some(x=>x.toLowerCase()===String(s).toLowerCase())).slice(0,12);
   const [tc,tl]=tier(j.score);const st=STATE[j.url];const sp=(j.sponsor||j.sponsorship);
   const desc=plainDesc(j.desc);
@@ -823,19 +830,19 @@ function openJob(url){const j=findJob(url);if(!j)return;DRAWER_URL=url;const p=p
       <button class="x" onclick="closeJob()" title="Close (Esc)">×</button></div>
     <div class="db">
       <div class="sec kv">
-        <div>Match<b class="t-${tc}" style="color:var(--${tc})">${j.score}% · ${tl}</b></div>
+        ${anon?`<div>Posted<b>${ago(j.date||j.posted_at)||"recently"}</b></div>`:`<div>Match<b class="t-${tc}" style="color:var(--${tc})">${j.score}% · ${tl}</b></div>`}
         <div>Apply route<b>${j.applyability==="auto"?"⚡ Agent can fill this form":j.applyability==="assist"?"Agent fills, you finish":"Manual — opens the posting"}</b></div>
         <div>Work setup<b>${j.remote?"Remote":"On-site / hybrid"}${j.employment_type?" · "+esc(j.employment_type):""}</b></div>
         <div>Sponsorship<b>${sp==="yes"?"Mentions sponsorship":sp==="no"?"No sponsorship":"Not stated"}</b></div>
       </div>
       ${hit.length?`<div class="sec"><h4>You match</h4><div class="tags">${hit.map(x=>`<span class="tag hit">${esc(x)}</span>`).join("")}</div></div>`:""}
-      ${miss.length?`<div class="sec"><h4>They also name — not on your profile</h4><div class="tags">${miss.map(x=>`<span class="tag miss">${esc(x)}</span>`).join("")}</div></div>`:""}
+      ${miss.length&&!anon?`<div class="sec"><h4>They also name — not on your profile</h4><div class="tags">${miss.map(x=>`<span class="tag miss">${esc(x)}</span>`).join("")}</div></div>`:""}
       <div class="sec"><h4>Description</h4><div class="desc" id="drawerDesc">${desc?esc(desc):"<i>Loading description…</i>"}</div></div>
     </div>
-    <div class="df"><span class="sc t-${tc}" style="color:var(--${tc})">${j.score}%</span>
+    <div class="df"><span class="sc t-${tc}" style="color:var(--${tc})">${anon?"":j.score+"%"}</span>
       <button class="btn" onclick="passJob('${esc(j.url)}');closeJob()">Pass</button>
       <button class="btn" onclick="tailorJob('${esc(j.url)}')">Tailor résumé</button>
-      <button class="btn" onclick="autoApply('${esc(j.url)}',this)">⚡ Auto-apply</button>
+      <button class="btn" onclick="autoApply('${esc(j.url)}',this)" title="Premium — the agent fills and submits the application for you">⚡ Auto-apply<span class="pro">PRO</span></button>
       ${st&&st.status==="submitted"?'<button class="btn" disabled>✓ Applied</button>':`<button class="btn accent" onclick="applyJob('${esc(j.url)}')">Apply ↗</button>`}
     </div>`;
   $("drawer").classList.add("on");$("drawerBg").classList.add("on");
@@ -862,7 +869,8 @@ function renderRail(){
   let h="";
   if(!canUse()){
     h+=`<div class="rl-you"><b>Jobs for your field</b><span>Sign in and we'll put your domain first — an AI engineer sees AI / ML, a nurse sees Clinical.</span>
-      <div class="pick"><button class="btn accent" style="padding:5px 10px;font-size:12px" onclick="requireLogin('dashboard.html')">Sign in</button></div></div>`;}
+      <div class="pick"><button class="btn accent" style="padding:5px 10px;font-size:12px" onclick="requireLogin('dashboard.html')">Sign in</button></div>
+      <div style="margin-top:10px;font-size:12px;color:var(--ink-soft)">Free: browse, search, tailor in the workbench. <span class="pro">PRO</span> auto-apply, agent, review queue.</div></div>`;}
   else if(mine&&tree[mine]){
     h+=`<div class="rl-you"><b>For you</b><span>${esc(mine)}${mysub?" › "+esc(mysub):""} — from your profile</span>
       <div class="pick"><button class="btn" style="padding:5px 10px;font-size:12px" data-cat="${esc(mine)}"${mysub?` data-sub="${esc(mysub)}"`:""} onclick="boardGo(this.dataset.cat,this.dataset.sub)">Show mine</button>
@@ -883,17 +891,18 @@ function renderRail(){
 }
 function renderCards(){
   renderRail();
-  const p=profile();$("matchSub").textContent=p.skills.length?`ranked against your ${p.skills.length} résumé skills`:"add skills in the workbench for real matching";
+  const p=profile();const anon=!canUse();
+  $("matchSub").textContent=anon?"fresh postings straight from company career pages — search anything":p.skills.length?`ranked against your ${p.skills.length} résumé skills`:"add skills in the workbench for real matching";
   const l=visible();
   const where=BOARD.cat?`<b>${esc(BOARD.cat)}${BOARD.sub?" › "+esc(BOARD.sub):""}</b>`:"<b>All jobs</b>";
   let h=`<div class="fd-h">${where}<span>${BOARD.total} ${BOARD.total===1?"job":"jobs"}</span>
-    <div class="right"><span>${$("fSort")&&$("fSort").value==="new"?"newest first":"best match first"}</span></div></div>`;
+    <div class="right"><span>${anon||($("fSort")&&$("fSort").value==="new")?"newest first":"best match first"}</span></div></div>`;
   if(!l.length){
     h+=`<div class="fd-empty"><b>Nothing here yet</b>${BOARD.cat?"Try another category, or clear the filters above.":"Hit <b>Refresh matches</b> — or open the workbench and save your profile first."}</div>`;
     $("feed").innerHTML=h;return;}
   h+=l.map(j=>{
     const [tc,tl]=tier(j.score);const sp=(j.sponsor||j.sponsorship);
-    const hay=((j.title||"")+" "+(j.desc||"")).toLowerCase();const hits=p.skills.filter(s=>hay.includes(s.toLowerCase())).slice(0,3);
+    const hay=((j.title||"")+" "+(j.desc||"")).toLowerCase();const hits=anon?[]:p.skills.filter(s=>hay.includes(s.toLowerCase())).slice(0,3);
     const st=STATE[j.url];const when=ago(j.date||j.posted_at);
     return `<div class="row" onclick="openJob('${esc(j.url)}')">
       <div class="t">
@@ -906,10 +915,10 @@ function renderCards(){
           ${hits.map(x=>`<span class="pill hit">${esc(x)}</span>`).join("")}</div>
       </div>
       <div class="r">
-        <span class="sc t-${tc}" title="${tl}">${j.score}<small>%</small></span>
+        ${anon?"":`<span class="sc t-${tc}" title="${tl}">${j.score}<small>%</small></span>`}
         <div class="acts" onclick="event.stopPropagation()">
           <button class="jact" onclick="tailorJob('${esc(j.url)}')" title="Tailor your résumé to this role">Tailor</button>
-          <button class="jact" onclick="autoApply('${esc(j.url)}',this)" title="Have the agent fill the application">⚡ Auto</button>
+          <button class="jact premium" onclick="autoApply('${esc(j.url)}',this)" title="Premium — the agent fills and submits the application for you">⚡ Auto<span class="pro">PRO</span></button>
           ${st&&st.status==="submitted"?'<button class="jact done">✓ Applied</button>':`<button class="jact apply" onclick="applyJob('${esc(j.url)}')" title="Open the posting and track it">Apply</button>`}
         </div>
       </div></div>`;}).join("");
@@ -1051,7 +1060,8 @@ function toggleAutoSubmit(){
 (function(){try{if(localStorage.getItem("tailor_live")==="1"){const c=document.getElementById("liveMode");if(c){c.checked=true;}}}catch(e){}renderAutoSubmitPill();})();
 function applyAuthChrome(){
   const anon=!canUse();
-  ["autoSubmitPill","liveTog","topFive"].forEach(id=>{const el=$(id);if(el)el.style.display=anon?"none":"";});
+  ["autoSubmitPill","liveTog","topFive","fSort"].forEach(id=>{const el=$(id);if(el)el.style.display=anon?"none":"";});
+  if(anon&&$("fSort")&&$("fSort").value!=="new"){$("fSort").value="new";search();}   // visitors: newest postings, no résumé ranking
   if($("signInBtn"))$("signInBtn").style.display=anon?"":"none";
   if(window.renderNav)renderNav(document.querySelector(".view.on")&&document.querySelector(".view.on").id==="v-apps"?"apps":"find");
   if(anon&&!$("v-dash").classList.contains("on"))showView("dash");
@@ -1300,17 +1310,18 @@ const NAV_ITEMS = [
   {id:"apps",    label:"Applications", auth:true},
   {id:"profile", label:"Profile", auth:true},
   {id:"answers", label:"Answer bank", auth:true},
-  {id:"review",  label:"Review queue", badge:"rqNav", auth:true},
-  {id:"agent",   label:"Agent", auth:true},
-  {id:"net",     label:"Networking", auth:true},
+  {id:"review",  label:"Review queue", badge:"rqNav", auth:true, pro:true},
+  {id:"agent",   label:"Agent", auth:true, pro:true},
+  {id:"net",     label:"Networking", auth:true, pro:true},
 ];
 function renderNav(active){
   document.querySelectorAll("nav.pnav, nav.nav").forEach(nav=>{
     nav.innerHTML = NAV_ITEMS.map(it=>{
       const on = it.id===active ? ' class="on"' : "";
       const badge = it.badge ? `<span id="${it.badge}" class="rq-badge" style="display:none"></span>` : "";
-      const lock = (it.auth&&!canUse()) ? ' title="Sign in to open this"' : "";
-      return `<button${on} data-nav="${it.id}"${lock} onclick="navGo('${it.id}')">${it.label}${badge}</button>`;
+      const lock = (it.auth&&!canUse()) ? ` title="${it.pro?"Premium — sign in to use this":"Sign in to open this"}"` : (it.pro?' title="Premium feature"':"");
+      const pro = it.pro ? '<span class="pro">PRO</span>' : "";
+      return `<button${on} data-nav="${it.id}"${lock} onclick="navGo('${it.id}')">${it.label}${pro}${badge}</button>`;
     }).join("");
   });
   if(window.refreshRqBadge&&canUse())try{refreshRqBadge()}catch(e){}
@@ -1425,7 +1436,7 @@ async function saveAnswerBank(){
   }catch(e){toast("Couldn't save — "+e.message);}
   b.disabled=false; b.textContent="Save answers";
 }
-window.boardGo=boardGo;window.openJob=openJob;window.closeJob=closeJob;window.boardMore=boardMore;window.openAnswerBank=openAnswerBank;window.closeAnswerBank=closeAnswerBank;window.saveAnswerBank=saveAnswerBank;
+window.boardGo=boardGo;window.search=search;window.searchSoon=searchSoon;window.openJob=openJob;window.closeJob=closeJob;window.boardMore=boardMore;window.openAnswerBank=openAnswerBank;window.closeAnswerBank=closeAnswerBank;window.saveAnswerBank=saveAnswerBank;
 </script>
 
 </body>

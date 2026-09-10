@@ -1195,6 +1195,10 @@ def test_public_board_private_everything_else():
     check("dashboard has a separate Applications view; auto-apply and tracking need sign-in",
           'id="v-apps"' in dash and 'if(!canUse())return requireLogin("dashboard.html");' in dash and "||!canUse())return Promise.resolve();" in dash)
     check("deep-link back after sign-in only accepts our own pages", "function safeNext" in idx and "(dashboard|index)" in idx)
+    check("premium features stay visible and are labelled PRO (auto-apply, agent, review queue, networking)",
+          dash.count("pro:true") == 3 and idx.count("pro:true") == 3 and 'class="jact premium"' in dash and '<span class="pro">PRO</span>' in dash)
+    check("visitors get newest-first search, no résumé ranking (they have no résumé)",
+          'oninput="searchSoon()"' in dash and '$("fSort").value="new";search();' in dash and 'const hits=anon?[]' in dash)
 
 
 def main():

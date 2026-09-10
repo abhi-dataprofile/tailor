@@ -573,6 +573,7 @@ code{background:var(--card-3);color:#2f6a4a}
 .pcard,.ob-qcard,.jobs-detail,#authBox,.card{border-radius:10px}
 .card{box-shadow:0 1px 2px rgba(26,36,32,.04)}
 .btn:focus-visible,.in:focus-visible{outline:2px solid var(--primary-tint,#2f6a4a);outline-offset:2px}
+.pro{font:600 9px "JetBrains Mono",ui-monospace,monospace;letter-spacing:.08em;padding:1px 5px;border-radius:4px;background:var(--marker,#f2c84b);color:#1a2420;vertical-align:middle;margin-left:6px}
 </style>
 <script src="filters.js"></script>
 </head>
@@ -4248,17 +4249,18 @@ const NAV_ITEMS = [
   {id:"apps",    label:"Applications", auth:true},
   {id:"profile", label:"Profile", auth:true},
   {id:"answers", label:"Answer bank", auth:true},
-  {id:"review",  label:"Review queue", badge:"rqNav", auth:true},
-  {id:"agent",   label:"Agent", auth:true},
-  {id:"net",     label:"Networking", auth:true},
+  {id:"review",  label:"Review queue", badge:"rqNav", auth:true, pro:true},
+  {id:"agent",   label:"Agent", auth:true, pro:true},
+  {id:"net",     label:"Networking", auth:true, pro:true},
 ];
 function renderNav(active){
   document.querySelectorAll("nav.pnav, nav.nav").forEach(nav=>{
     nav.innerHTML = NAV_ITEMS.map(it=>{
       const on = it.id===active ? ' class="on"' : "";
       const badge = it.badge ? `<span id="${it.badge}" class="rq-badge" style="display:none"></span>` : "";
-      const lock = (it.auth&&!canUse()) ? ' title="Sign in to open this"' : "";
-      return `<button${on} data-nav="${it.id}"${lock} onclick="navGo('${it.id}')">${it.label}${badge}</button>`;
+      const lock = (it.auth&&!canUse()) ? ` title="${it.pro?"Premium — sign in to use this":"Sign in to open this"}"` : (it.pro?' title="Premium feature"':"");
+      const pro = it.pro ? '<span class="pro">PRO</span>' : "";
+      return `<button${on} data-nav="${it.id}"${lock} onclick="navGo('${it.id}')">${it.label}${pro}${badge}</button>`;
     }).join("");
   });
   if(window.refreshRqBadge&&canUse())try{refreshRqBadge()}catch(e){}

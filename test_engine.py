@@ -1098,6 +1098,50 @@ def test_dead_feed_is_not_silent():
           str(ats.PRIORITY.get("lever")))
 
 
+def test_job_board_segregates_by_domain():
+    section("Job board · jobs are segregated by domain, and YOUR domain comes first")
+    import serve
+    cases = [
+        ("Senior Machine Learning Engineer",   "",           ("Engineering", "AI / ML")),
+        ("Staff Backend Engineer",             "",           ("Engineering", "Backend")),
+        ("Site Reliability Engineer",          "",           ("Engineering", "DevOps / Infra")),
+        ("iOS Developer",                      "",           ("Engineering", "Mobile")),
+        ("Product Manager, Payments",          "",           ("Product", "Product Management")),
+        ("Product Designer",                   "",           ("Design", "Product Design")),
+        ("Account Executive, Enterprise",      "",           ("Sales", "Account Exec")),
+        ("Registered Nurse",                   "",           ("Healthcare", "Clinical")),
+        # function words win over tech words — a sales role about AI is still a sales role
+        ("Principal, Strategic AI Sales",      "",           ("Sales", "Account Exec")),
+        ("AI Product Marketing Manager",       "",           ("Marketing", "Marketing")),
+        ("Technical Recruiter, AI",            "",           ("People", "People / HR")),
+        # whole words only — "ai" must not fire on "Aide", "qa" not on "Qatar"
+        ("Aide a domicile H/F",                "",           ("Other", "Other")),
+        ("Qatar Country Manager",              "",           ("Other", "Other")),
+        ("Cybersecurity Analyst",              "",           ("Engineering", "Security")),
+        ("Senior C++ Developer",               "",           ("Engineering", "Backend")),
+        ("Actuarial Analyst",                  "",           ("Finance", "Finance")),
+        ("HR Business Partner",                "",           ("People", "People / HR")),
+    ]
+    for title, dept, want in cases:
+        got = serve._category(title, dept)
+        check(f"{title!r} → {want[0]} › {want[1]}", tuple(got) == want, str(got))
+    check("an unclassifiable title in an engineering department is still tech",
+          tuple(serve._category("Team Member", "Engineering"))[0] == "Engineering")
+    check("an unclassifiable title elsewhere is honestly 'Other'",
+          tuple(serve._category("Team Member", ""))[0] == "Other")
+    me = serve._my_domain({"title": "AI Engineer", "skills": ["python", "pytorch", "llm"]})
+    check("profile is classified the same way jobs are (AI engineer → Engineering › AI / ML)",
+          tuple(me) == ("Engineering", "AI / ML"), str(me))
+    src = serve.jobs_query.__code__.co_varnames
+    check("jobs_query reads category + sub filters", "cat" in src and "sub" in src)
+    html = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "dashboard.html")).read()
+    check("dashboard has the rail + feed board", 'id="rail"' in html and 'id="feed"' in html)
+    check("board sends category / sub / page to the API",
+          'p.set("category"' in html and 'p.set("sub"' in html and 'p.set("page"' in html)
+    check("board opens on the user's own domain first", "r.facets.my_domain" in html)
+    check("no more 5-job cap on the feed", "slice(0,5)" not in html.split("function renderCards")[1].split("const STABS")[0])
+
+
 def main():
     print("═" * 62); print("ENGINE TESTS · in-memory DB · nothing submitted, no network"); print("═" * 62)
     for t in (test_apply_one_auto, test_apply_one_review, test_review_blocked_when_incomplete,
@@ -1118,7 +1162,8 @@ def main():
               test_answered_questions_are_never_withheld,
               test_episodic_memory_and_recall,
               test_submission_is_only_confirmed_when_the_form_is_gone,
-              test_apply_budget_and_decline_matching):
+              test_apply_budget_and_decline_matching,
+              test_job_board_segregates_by_domain):
         try:
             t()
         except Exception as e:

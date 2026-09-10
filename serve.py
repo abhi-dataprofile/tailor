@@ -631,6 +631,91 @@ def _inlist(vals):
     """PostgREST in.(...) with each value double-quoted (handles spaces/commas)."""
     return "in.(" + ",".join('"' + v.replace('"', "") + '"' for v in vals) + ")"
 
+
+# ─── job categorisation ─────────────────────────────────────────────────────
+# Every job gets a DOMAIN and a SUBCATEGORY from its title (plus ATS department and skill
+# tags as tie-breakers). The board groups by these, and leads with the candidate's own
+# domain — classified the same way from their profile title + skills — so an AI engineer
+# sees Engineering › AI / ML first, not "Delivery Driver" and "Physical Therapist".
+# Order matters: earlier rules win, and the specific engineering subs come before the
+# generic "engineer" catch-all so "Data Engineer" lands in Data, not Backend.
+_CATEGORY_RULES = [
+    # (domain, sub, title regex)
+    ("Engineering", "AI / ML",        r"(?<!\w)(ai|ml|machine learning|deep learning|llm|nlp|computer vision|applied scientist\w*|research scientist\w*|genai|generative|agentic|data scientist\w*|algorithm\w*)(?!\w)"),
+    ("Engineering", "Data",           r"(?<!\w)(data engineer\w*|analytics engineer\w*|etl|data platform|data infrastructure|big data|snowflake|databricks)(?!\w)"),
+    ("Engineering", "DevOps / Infra", r"(?<!\w)(devops|sre|site reliability|platform engineer\w*|infrastructure|cloud engineer\w*|systems? (engineer\w*|administrator\w*|admin)|it admin|network engineer\w*|kubernetes)(?!\w)"),
+    ("Engineering", "Security",       r"(?<!\w)(security|infosec|appsec|penetration|soc analyst\w*|cyber\w*)(?!\w)"),
+    ("Engineering", "Mobile",         r"(?<!\w)(ios|android|mobile|react native|flutter)(?!\w)"),
+    ("Engineering", "Frontend",       r"(?<!\w)(front[- ]?end|frontend|ui engineer\w*|web developer\w*|react|angular|vue)(?!\w)"),
+    ("Engineering", "Full-stack",     r"(?<!\w)(full[- ]?stack)(?!\w)"),
+    ("Engineering", "QA / Test",      r"(?<!\w)(qa|quality assurance|test engineer\w*|sdet|automation engineer\w*)(?!\w)"),
+    ("Engineering", "Embedded / HW",  r"(?<!\w)(embedded|firmware|fpga|hardware|electrical|electronics|asic|rf engineer\w*|optical|mechanical engineer\w*|robotic\w*)(?!\w)"),
+    ("Engineering", "Eng Management", r"(?<!\w)(engineering manager|head of engineering|vp,? engineering|director,? engineering|cto|engineering program)(?!\w)"),
+    ("Engineering", "Backend",        r"(?<!\w)(back[- ]?end|backend|software engineer\w*|software developer\w*|\.net|java|python|golang|rust|c\+\+|api|developer\w*|programmer\w*|solutions? (engineer\w*|architect)|integration\w*)(?!\w)"),
+    ("Product",     "Product Management", r"(?<!\w)(product manager|product owner|head of product|vp,? product|director,? product|group product)(?!\w)"),
+    ("Product",     "Program / Project",  r"(?<!\w)(program manager|project manager|technical program|delivery manager|scrum master)(?!\w)"),
+    ("Design",      "Product Design",     r"(?<!\w)(product designer\w*|ux|ui designer\w*|interaction designer\w*|design lead|visual designer\w*)(?!\w)"),
+    ("Design",      "Research",           r"(?<!\w)(user research|ux research|design research)(?!\w)"),
+    ("Data & Analytics", "Analytics",     r"(?<!\w)(data analyst\w*|business analyst\w*|analytics|bi analyst\w*|reporting analyst\w*|insights)(?!\w)"),
+    ("Sales",       "Account Exec",       r"(?<!\w)(account executive|account manager|sales|business development|bdr|sdr|revenue|partnerships?)(?!\w)"),
+    ("Sales",       "Customer Success",   r"(?<!\w)(customer success|customer support|support engineer\w*|onboarding|solutions consultant\w*|implementation)(?!\w)"),
+    ("Marketing",   "Growth",             r"(?<!\w)(growth|demand gen|seo|sem|performance marketing|paid)(?!\w)"),
+    ("Marketing",   "Marketing",          r"(?<!\w)(marketing|brand\w*|content|communications|pr manager|social media|community)(?!\w)"),
+    ("Finance",     "Finance",            r"(?<!\w)(finance|financial|accountant\w*|accounting|controller\w*|treasury|fp&a|credit|risk analyst\w*|portfolio manager|actuar\w*)(?!\w)"),
+    ("Legal",       "Legal",              r"(?<!\w)(counsel|legal|attorney\w*|paralegal\w*|compliance|regulatory)(?!\w)"),
+    ("People",      "People / HR",        r"(?<!\w)(recruit\w*|talent|people ops|human resources|hr|hrbp|payroll)(?!\w)"),
+    ("Operations",  "Operations",         r"(?<!\w)(operations|ops manager|supply chain|logistics|procurement|sourcing|facilities|office manager|chief of staff)(?!\w)"),
+    ("Healthcare",  "Clinical",           r"(?<!\w)(nurse\w*|physician\w*|doctor\w*|therapist\w*|clinical|medical|dental|veterinar\w*|dvm|pharmac\w*|bcba|behavior analyst\w*|caregiver\w*|health\w*)(?!\w)"),
+    ("Field & Trades", "Field",           r"(?<!\w)(driver\w*|warehouse|technician\w*|installer|welder\w*|iron worker|mechanic\w*|electrician\w*|plumber\w*|forklift|associate -|fulfillment|production|manufacturing|assembler\w*|trainer)(?!\w)"),
+]
+_CATEGORY_RULES = [(d, sub, re.compile(rx, re.I)) for d, sub, rx in _CATEGORY_RULES]
+_TECH_DEPTS = re.compile(r"engineer|technolog|software|data|product development|r&d|research and development|autonomy|platform", re.I)
+_CAT_CACHE = {}
+
+def _category(title, department="", skills=None):
+    """(domain, subcategory) for a job. Title rules first; if none fire, the ATS department
+    and skill tags decide between 'Engineering › Backend' and 'Other'."""
+    key = (title or "", department or "")
+    hit = _CAT_CACHE.get(key)
+    if hit:
+        return hit
+    t = title or ""
+    out = None
+    # A title whose FUNCTION is non-engineering (sales, marketing, legal, finance…) is that
+    # function, however many tech words it contains: "Strategic AI Sales" is Sales, "AI
+    # Product Marketing Manager" is Marketing. Check the function words first.
+    _func = re.search(r"\b(sales|account executive|business development|marketing|counsel|legal|"
+                      r"recruit(er|ing)|talent|finance|accountant|controller|paralegal|"
+                      r"customer success|solutions? consultant)\b", t, re.I)
+    if _func:
+        for domain, sub, rx in _CATEGORY_RULES:
+            if domain not in ("Engineering", "Data & Analytics") and rx.search(t):
+                out = (domain, sub)
+                break
+    if out is None:
+        for domain, sub, rx in _CATEGORY_RULES:
+            if rx.search(t):
+                out = (domain, sub)
+                break
+    if out is None:
+        techy = bool(_TECH_DEPTS.search(department or "")) or bool(
+            {str(s).lower() for s in (skills or [])} & {"python", "java", "typescript", "go", "sql", "aws", "kubernetes", "react"})
+        out = ("Engineering", "Backend") if techy else ("Other", "Other")
+    if len(_CAT_CACHE) > 50000:
+        _CAT_CACHE.clear()
+    _CAT_CACHE[key] = out
+    return out
+
+def _my_domain(prof):
+    """The candidate's own domain, classified from their title and skills exactly as a job
+    would be — so the board can lead with it."""
+    title = (prof or {}).get("title") or ""
+    skills = (prof or {}).get("skills") or []
+    d, sub = _category(title, "", skills)
+    if d == "Other" and skills:
+        d, sub = _category(" ".join(map(str, skills[:12])), "", skills)
+    return d, sub
+
 def _seniority(title):
     t = (title or "").lower()
     if re.search(r"\b(intern|internship)\b", t): return "intern"
@@ -688,6 +773,7 @@ def jobs_query(qs, user="local"):
     days = one("days"); mins = one("mins")
     sort = one("sort", "relevant"); remote = one("remote") in ("1", "true")
     spon = one("sponsor"); only = one("only").lower()   # 'auto' → only end-to-end doable jobs
+    cat = one("category"); sub = one("sub")             # board grouping: domain / subcategory
     try: page = max(0, int(one("page", "0")))
     except Exception: page = 0
     params = {"select": _SLIM, "is_open": "eq.true",
@@ -718,8 +804,12 @@ def jobs_query(qs, user="local"):
     blocked_co, manual_co = _apply_signals(user)
     for j in pool:
         j["score"] = _score(j, myskills, prof.get("title") or "")
+        j["category"], j["subcategory"] = _category(j.get("title"), j.get("department"), j.get("skills"))
         j["status"] = states.get(j["id"], "new")
         j["applyability"] = _applyability(j.get("vendor"), j.get("company_slug"), blocked_co, manual_co)
+    _cat_pool = list(pool)
+    if cat:
+        pool = [j for j in pool if j["category"] == cat and (not sub or j["subcategory"] == sub)]
     if only == "auto":                                  # "only suggest jobs we can do end-to-end"
         pool = [j for j in pool if j["applyability"] == "auto"]
     elif only in ("assisted", "applyable"):             # auto + assisted (agent does the work; you may finish a captcha)
@@ -736,7 +826,17 @@ def jobs_query(qs, user="local"):
     ets = Counter(j.get("employment_type") for j in pool if j.get("employment_type"))
     comps = Counter(j.get("company_slug") for j in pool if j.get("company_slug"))
     ctry = Counter(j.get("country") for j in pool if j.get("country"))
+    # category tree over the whole matched pool (before the category filter narrows it),
+    # so the rail always shows every domain with a live count
+    tree = {}
+    for j in _cat_pool:
+        d, sb_ = j["category"], j["subcategory"]
+        node = tree.setdefault(d, {"count": 0, "subs": {}})
+        node["count"] += 1
+        node["subs"][sb_] = node["subs"].get(sb_, 0) + 1
+    my_d, my_s = _my_domain(prof)
     facets = {"employment_types": [e for e, _ in ets.most_common(12)],
+              "categories": tree, "my_domain": my_d, "my_sub": my_s,
               "countries": [c for c, _ in ctry.most_common(40)],
               "companies": [c for c, _ in comps.most_common(50)],
               "vendors": sorted({j.get("vendor") for j in pool if j.get("vendor")})}

@@ -205,6 +205,61 @@ a{color:var(--primary-tint)}
 @media(max-width:640px){.qb-row{grid-template-columns:1fr}}
 .dtab .notland{background:rgba(190,60,40,.13);border-radius:4px;padding:1px 5px;font-size:10px;white-space:nowrap}
 .dtab tr.src-profile td .notland{background:rgba(190,60,40,.16)}
+
+/* ── Job board ─────────────────────────────────────────────────────────────── */
+.board{display:grid;grid-template-columns:232px 1fr;gap:28px;align-items:start;margin-bottom:40px}
+@media(max-width:900px){.board{grid-template-columns:1fr}.rail{position:static}}
+.rail{position:sticky;top:78px;display:flex;flex-direction:column;gap:2px}
+.rail .rl-h{font:600 11px "Inter";letter-spacing:.06em;text-transform:uppercase;color:var(--ink-faint);padding:6px 10px 8px}
+.rail .rl-d{display:flex;align-items:center;gap:8px;width:100%;text-align:left;border:0;background:transparent;
+  padding:7px 10px;border-radius:8px;font:500 13.5px "Inter";color:var(--ink);cursor:pointer;transition:background .12s}
+.rail .rl-d:hover{background:rgba(0,0,0,.045)}
+.rail .rl-d.on{background:var(--ink);color:#fff}
+.rail .rl-d .n{margin-left:auto;font:500 11.5px "JetBrains Mono",ui-monospace,monospace;color:var(--ink-faint)}
+.rail .rl-d.on .n{color:rgba(255,255,255,.7)}
+.rail .rl-d .chev{width:12px;height:12px;opacity:.5;transition:transform .15s}
+.rail .rl-d.open .chev{transform:rotate(90deg)}
+.rail .rl-subs{display:flex;flex-direction:column;gap:1px;margin:2px 0 6px 14px;padding-left:10px;border-left:1px solid var(--line)}
+.rail .rl-s{display:flex;align-items:center;gap:8px;border:0;background:transparent;text-align:left;padding:5px 9px;
+  border-radius:7px;font:500 13px "Inter";color:var(--ink-soft);cursor:pointer}
+.rail .rl-s:hover{background:rgba(0,0,0,.045);color:var(--ink)}
+.rail .rl-s.on{background:var(--primary-soft);color:var(--primary-tint);font-weight:600}
+.rail .rl-s .n{margin-left:auto;font:500 11px "JetBrains Mono",ui-monospace,monospace;color:var(--ink-faint)}
+.rail .rl-you{border:1px solid var(--line);background:#fff;border-radius:10px;padding:10px 12px;margin:0 0 10px}
+.rail .rl-you b{display:block;font:600 13px "Inter"}
+.rail .rl-you span{font-size:12px;color:var(--ink-soft)}
+.rail .rl-you .pick{margin-top:8px;display:flex;gap:6px}
+.feed{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:12px;background:#fff;overflow:hidden}
+.feed .fd-h{display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--line);
+  font-size:13px;color:var(--ink-soft);background:#fafaf7}
+.feed .fd-h b{color:var(--ink);font-weight:600}
+.feed .fd-h .right{margin-left:auto;display:flex;gap:8px;align-items:center}
+.row{display:grid;grid-template-columns:1fr auto;gap:16px;padding:14px 16px;border-bottom:1px solid var(--line-soft);
+  align-items:center;transition:background .12s;animation:up .25s ease both}
+.row:last-child{border-bottom:0}
+.row:hover{background:#fafaf7}
+.row .t{display:flex;flex-direction:column;gap:4px;min-width:0}
+.row .t a{font:600 14.5px "Inter";color:var(--ink);text-decoration:none;line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row .t a:hover{text-decoration:underline}
+.row .m{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--ink-soft);flex-wrap:wrap}
+.row .m .ava{width:18px;height:18px;border-radius:5px;font-size:9px}
+.row .m .sep{color:var(--line);margin:0 -2px}
+.row .pill{font:500 11px "Inter";padding:2px 7px;border-radius:6px;border:1px solid var(--line);color:var(--ink-soft);background:#fff;white-space:nowrap}
+.row .pill.cat{border-color:transparent;background:rgba(0,0,0,.05)}
+.row .pill.auto{color:var(--primary-tint);border-color:var(--primary-soft);background:var(--primary-soft)}
+.row .pill.hit{background:var(--exc-bg);color:var(--exc);border-color:transparent}
+.row .r{display:flex;align-items:center;gap:8px;flex-shrink:0}
+.row .sc{font:600 13px "JetBrains Mono",ui-monospace,monospace;min-width:44px;text-align:right}
+.row .sc small{font-weight:500;opacity:.55;font-size:10px}
+.row .sc.t-exc{color:var(--exc)}.row .sc.t-str{color:var(--str)}.row .sc.t-good{color:var(--good)}.row .sc.t-fair{color:var(--fair)}
+.row .acts{display:flex;gap:6px;opacity:.55;transition:opacity .12s}
+.row:hover .acts{opacity:1}
+.row .acts .jact{padding:6px 10px;border-radius:7px;font:600 12px "Inter";border:1px solid var(--line);background:#fff;cursor:pointer}
+.row .acts .jact.apply{background:var(--ink);border-color:var(--ink);color:#fff}
+.row .acts .jact.done{background:var(--exc-bg);border-color:transparent;color:var(--exc);cursor:default}
+.feed .fd-more{padding:12px;text-align:center;border-top:1px solid var(--line)}
+.feed .fd-empty{padding:48px 16px;text-align:center;color:var(--ink-soft)}
+.feed .fd-empty b{display:block;font:600 15px "Inter";color:var(--ink);margin-bottom:4px}
 </style>
 </head>
 <body>
@@ -235,9 +290,13 @@ a{color:var(--primary-tint)}
     </div>
     <div class="prog" id="prog" style="display:none"><span class="spin"></span><div class="bar"><i id="progBar"></i></div><span id="progTxt"></span></div>
 
-    <div class="sechead"><h2>Top job matches</h2><span class="sub" id="matchSub">ranked against your résumé</span>
+    <div class="sechead"><h2>Jobs</h2><span class="sub" id="matchSub">ranked against your résumé</span>
       <div class="right"><button class="btn" onclick="applyTop()" title="Opens the postings so you can apply yourself — nothing is submitted for you"><svg class="ic" viewBox="0 0 24 24"><polygon points="13 2 4 14 11 14 10 22 20 10 13 10 13 2"/></svg> Open top 5</button></div></div>
-    <div class="cards" id="cards"><div class="skel"></div><div class="skel"></div><div class="skel"></div><div class="skel"></div><div class="skel"></div></div>
+    <div class="board">
+      <aside class="rail" id="rail"></aside>
+      <section class="feed" id="feed"><div class="fd-empty">Loading…</div></section>
+    </div>
+    <div id="cards" style="display:none"></div>
 
     <style>
     .act-tabs{display:flex;gap:7px;flex-wrap:wrap;margin:2px 0 14px}
@@ -473,6 +532,7 @@ function setState(url,st,job,extra){STATE[url]=Object.assign({status:st,at:new D
   if(DB&&job.id)fetch("/api/jobs/state",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({job_id:job.id,status:st==="submitted"?"applied":st==="skipped"?"dismissed":"saved"})}).catch(()=>{});}
 
 let JOBS=[],DB=false,STAB="all",_running=false;
+let LAST_FACETS={};const BOARD={cat:null,sub:null,page:0,init:false,total:0,more:false};
 async function refresh(){
   if(_running)return;_running=true;$("btnRefresh").disabled=true;
   $("cards").innerHTML='<div class="skel"></div><div class="skel"></div><div class="skel"></div><div class="skel"></div><div class="skel"></div>';
@@ -480,9 +540,21 @@ async function refresh(){
     const p=window.TailorFilters?TailorFilters.buildParams():new URLSearchParams();
     const q=($("fQ").value||"").trim();if(q)p.set("q",q);
     p.set("sort",($("fSort")&&$("fSort").value==="new")?"new":"relevant");
+    if(BOARD.cat)p.set("category",BOARD.cat);
+    if(BOARD.sub)p.set("sub",BOARD.sub);
+    if(BOARD.page)p.set("page",String(BOARD.page));
     let r=await fetch("/api/jobs?"+p.toString(),{headers:authHeaders()}).then(x=>x.json()).catch(()=>({ok:false}));
-    if(r.ok){DB=true;$("srcTxt").textContent="job index · live";JOBS=(r.jobs||[]).map(j=>({...j,company:j.company_slug,desc:j.description}));
-      if(window.TailorFilters&&r.facets)TailorFilters.setFacets({countries:r.facets.countries||[],companies:r.facets.companies||[]});}
+    if(r.ok){DB=true;$("srcTxt").textContent="job index · live";
+      const got=(r.jobs||[]).map(j=>({...j,company:j.company_slug,desc:j.description}));
+      JOBS=BOARD.page>0?JOBS.concat(got):got;
+      LAST_FACETS=r.facets||{};BOARD.total=r.count||0;BOARD.more=!!r.has_more;
+      if(window.TailorFilters&&r.facets)TailorFilters.setFacets({countries:r.facets.countries||[],companies:r.facets.companies||[]});
+      /* First load: lead with YOUR domain. The server classifies your profile the same way
+         it classifies jobs, so an AI engineer opens on Engineering › AI / ML — not on
+         whatever happened to be crawled most recently. */
+      if(!BOARD.init){BOARD.init=true;
+        if(!BOARD.cat&&r.facets&&r.facets.my_domain&&(r.facets.categories||{})[r.facets.my_domain]){
+          BOARD.cat=r.facets.my_domain;BOARD.sub=null;_running=false;return refresh();}}}
     else{DB=false;$("srcTxt").textContent="live discovery";await discover(q);}
   }finally{_running=false;$("btnRefresh").disabled=false;$("prog").style.display="none";renderAll();}
 }
@@ -670,29 +742,68 @@ function applyBadge(a){
   if(a==="manual")return '<span class="tag ap-manual" title="Unsupported / account-required — apply yourself">Manual</span>';
   return "";
 }
+function boardGo(cat,sub){BOARD.cat=cat||null;BOARD.sub=sub||null;BOARD.page=0;refresh();}
+function boardMore(){BOARD.page+=1;refresh();}
+function renderRail(){
+  const tree=(LAST_FACETS.categories)||{};const mine=LAST_FACETS.my_domain,mysub=LAST_FACETS.my_sub;
+  const names=Object.keys(tree).sort((a,b)=>{
+    if(a===mine)return -1;if(b===mine)return 1;
+    if(a==="Other")return 1;if(b==="Other")return -1;
+    return (tree[b].count||0)-(tree[a].count||0);});
+  const total=names.reduce((n,k)=>n+(tree[k].count||0),0);
+  let h="";
+  if(mine&&tree[mine]){
+    h+=`<div class="rl-you"><b>For you</b><span>${esc(mine)}${mysub?" › "+esc(mysub):""} — from your profile</span>
+      <div class="pick"><button class="btn" style="padding:5px 10px;font-size:12px" data-cat="${esc(mine)}"${mysub?` data-sub="${esc(mysub)}"`:""} onclick="boardGo(this.dataset.cat,this.dataset.sub)">Show mine</button>
+      <button class="btn ghost" style="padding:5px 10px;font-size:12px" onclick="boardGo(null,null)">Everything</button></div></div>`;}
+  h+=`<div class="rl-h">Categories</div>`;
+  h+=`<button class="rl-d${!BOARD.cat?" on":""}" onclick="boardGo(null,null)"><span>All jobs</span><span class="n">${total}</span></button>`;
+  for(const d of names){
+    const node=tree[d];const open=(BOARD.cat===d)||(d===mine&&!BOARD.cat);
+    h+=`<button class="rl-d${BOARD.cat===d&&!BOARD.sub?" on":""}${open?" open":""}" data-cat="${esc(d)}" onclick="boardGo(this.dataset.cat,null)">
+          <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 6 15 12 9 18"/></svg>
+          <span>${esc(d)}</span><span class="n">${node.count||0}</span></button>`;
+    if(open){
+      const subs=Object.entries(node.subs||{}).sort((a,b)=>b[1]-a[1]);
+      if(subs.length>1)h+=`<div class="rl-subs">`+subs.map(([sname,n])=>
+        `<button class="rl-s${BOARD.cat===d&&BOARD.sub===sname?" on":""}" data-cat="${esc(d)}" data-sub="${esc(sname)}" onclick="boardGo(this.dataset.cat,this.dataset.sub)"><span>${esc(sname)}</span><span class="n">${n}</span></button>`).join("")+`</div>`;}
+  }
+  $("rail").innerHTML=h;
+}
 function renderCards(){
-  const seen={},l=[];for(const j of visible()){const k=(j.company||"").toLowerCase();seen[k]=(seen[k]||0)+1;if(seen[k]<=2)l.push(j);if(l.length>=5)break;}
+  renderRail();
   const p=profile();$("matchSub").textContent=p.skills.length?`ranked against your ${p.skills.length} résumé skills`:"add skills in the workbench for real matching";
-  if(!l.length){$("cards").innerHTML=`<div class="empty" style="grid-column:1/-1"><div class="big">No matches yet</div>Hit <b>Refresh matches</b> — or open the workbench and save your profile first.</div>`;return;}
-  $("cards").innerHTML=l.map(j=>{
+  const l=visible();
+  const where=BOARD.cat?`<b>${esc(BOARD.cat)}${BOARD.sub?" › "+esc(BOARD.sub):""}</b>`:"<b>All jobs</b>";
+  let h=`<div class="fd-h">${where}<span>${BOARD.total} ${BOARD.total===1?"job":"jobs"}</span>
+    <div class="right"><span>${$("fSort")&&$("fSort").value==="new"?"newest first":"best match first"}</span></div></div>`;
+  if(!l.length){
+    h+=`<div class="fd-empty"><b>Nothing here yet</b>${BOARD.cat?"Try another category, or clear the filters above.":"Hit <b>Refresh matches</b> — or open the workbench and save your profile first."}</div>`;
+    $("feed").innerHTML=h;return;}
+  h+=l.map(j=>{
     const [tc,tl]=tier(j.score);const sp=(j.sponsor||j.sponsorship);
-    const hay=((j.title||"")+" "+(j.desc||"")).toLowerCase();const hits=p.skills.filter(s=>hay.includes(s.toLowerCase())).slice(0,4);
+    const hay=((j.title||"")+" "+(j.desc||"")).toLowerCase();const hits=p.skills.filter(s=>hay.includes(s.toLowerCase())).slice(0,3);
     const st=STATE[j.url];const when=ago(j.date||j.posted_at);
-    return `<div class="jc t-${tc}">
-      <div class="meta"><span class="qlabel q-${tc}"><span class="qd"></span>${tl}</span>
-        <span class="ring" style="--p:${j.score};--c:${RING[tc]};--rc:${RINGBG[tc]}"><i></i><b><span class="pc">${j.score}<small>%</small></span><span class="mt">MATCH</span></b></span></div>
-      <a class="title" href="${esc(j.url)}" target="_blank" rel="noopener" title="Open the original posting">${esc(j.title)}</a>
-      <div class="tags">${applyBadge(j.applyability)}${hits.map(h=>`<span class="tag hit">${esc(h)}</span>`).join("")}${j.remote?'<span class="tag rem">remote</span>':""}${sp==="no"?'<span class="tag sp-no">no sponsorship</span>':sp==="yes"?'<span class="tag sp-yes">sponsors visa</span>':""}</div>
-      <div class="jfoot">
-        <div class="cline"><span class="ava" style="background:${avaCol(j.company)}">${esc(initials(j.company))}</span>
-          <span class="cmeta">${esc(j.company||"")}${j.location?" · "+esc(j.location):""}${when?" · "+when:""}</span></div>
+    return `<div class="row">
+      <div class="t">
+        <a href="${esc(j.url)}" target="_blank" rel="noopener" title="${esc(j.title)}">${esc(j.title)}</a>
+        <div class="m"><span class="ava" style="background:${avaCol(j.company)}">${esc(initials(j.company))}</span>
+          <span>${esc(j.company||"")}</span>${j.location?`<span class="sep">·</span><span>${esc(j.location)}</span>`:""}${when?`<span class="sep">·</span><span>${when}</span>`:""}
+          ${j.subcategory&&j.subcategory!=="Other"?`<span class="pill cat">${esc(j.subcategory)}</span>`:""}
+          ${j.applyability==="auto"?`<span class="pill auto">⚡ auto-apply</span>`:""}
+          ${j.remote?`<span class="pill">remote</span>`:""}${sp==="no"?`<span class="pill">no sponsorship</span>`:sp==="yes"?`<span class="pill">sponsors</span>`:""}
+          ${hits.map(x=>`<span class="pill hit">${esc(x)}</span>`).join("")}</div>
+      </div>
+      <div class="r">
+        <span class="sc t-${tc}" title="${tl}">${j.score}<small>%</small></span>
         <div class="acts">
-          <button class="jact tailor" onclick="tailorJob('${esc(j.url)}')" title="Open in the workbench and tailor your resume to this role">Tailor</button>
-          <button class="jact auto" onclick="autoApply('${esc(j.url)}',this)" title="Auto-fill the application form in a headless browser">\u26a1 Auto</button>
-          ${st&&st.status==="submitted"?'<button class="jact done">✓ Applied</button>':`<button class="jact apply" onclick="applyJob('${esc(j.url)}')" title="Open the posting and track as applied">Apply</button>`}
+          <button class="jact" onclick="tailorJob('${esc(j.url)}')" title="Tailor your résumé to this role">Tailor</button>
+          <button class="jact" onclick="autoApply('${esc(j.url)}',this)" title="Have the agent fill the application">⚡ Auto</button>
+          ${st&&st.status==="submitted"?'<button class="jact done">✓ Applied</button>':`<button class="jact apply" onclick="applyJob('${esc(j.url)}')" title="Open the posting and track it">Apply</button>`}
         </div>
-        ${st&&st.status==="submitted"?"":`<button class="pass-link" onclick="passJob('${esc(j.url)}')">Not interested</button>`}
       </div></div>`;}).join("");
+  if(BOARD.more)h+=`<div class="fd-more"><button class="btn" onclick="boardMore()">Load more</button></div>`;
+  $("feed").innerHTML=h;
 }
 const STABS=[["all","All"],["submitted","Submitted"],["saved","Saved"],["needs_you","Needs you"],["failed","Failed"],["skipped","Skipped"]];
 function counts(){const c={all:0};STABS.slice(1).forEach(([k])=>c[k]=0);Object.values(STATE).forEach(s=>{c.all++;if(c[s.status]!=null)c[s.status]++;});return c;}
@@ -1187,7 +1298,7 @@ async function saveAnswerBank(){
   }catch(e){toast("Couldn't save — "+e.message);}
   b.disabled=false; b.textContent="Save answers";
 }
-window.openAnswerBank=openAnswerBank;window.closeAnswerBank=closeAnswerBank;window.saveAnswerBank=saveAnswerBank;
+window.boardGo=boardGo;window.boardMore=boardMore;window.openAnswerBank=openAnswerBank;window.closeAnswerBank=closeAnswerBank;window.saveAnswerBank=saveAnswerBank;
 </script>
 
 </body>

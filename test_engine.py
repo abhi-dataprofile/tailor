@@ -1262,6 +1262,10 @@ def test_public_board_private_everything_else():
     check("every spacing value is a slider (line, bullets, roles, headings, margins), no colour picker, two templates",
           all(x in idx for x in ('oninput="rsSetNum(', "function rsResetSpacing", "RS_RANGE={size:", '"lh","li","gap","h2","pad","padx"', 'seg("tpl",[["classic","Classic"],["modern","Modern"]])'))
           and "rs-accent" not in idx and "rsSet('accent'" not in idx)
+    check("compact defaults, editing controls take no space and are excluded from the page measure, headings editable, custom sections",
+          'size:11.5,lh:1.35' in idx and 'd.classList.add("measuring")' in idx and ".resume.measuring .no-print{display:none!important}" in idx
+          and idx.count('<h2 contenteditable="true" data-h="') >= 6 and 'data-act="add-custom"' in idx and "function rsMarginPreset" in idx
+          and "insertOrderedList" in idx and "justifyCenter" in idx)
     check("exports carry the on-screen design: PDF via html2pdf (cdnjs, loaded on demand) and HTML with the same CSS numbers",
           "function resumeExportCSS" in idx and "function downloadResumePDF" in idx and "cdnjs.cloudflare.com/ajax/libs/html2pdf.js" in idx
           and 'onclick="tailorDownloadPDF()"' in idx and "resumeExportCSS()" in idx.split("function downloadResume(){")[1].split("\n}")[0])

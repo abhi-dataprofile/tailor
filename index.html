@@ -598,6 +598,13 @@ code{background:var(--card-3);color:#2f6a4a}
 .resume{--rs:1;--rs-font:"Geist","Inter",system-ui,sans-serif;--rs-base:13.5px;--rs-lh:1.55;--rs-pad:44px 48px;--rs-gap:15px;--rs-h2:22px;--rs-li:3px;
   font-family:var(--rs-font);padding:var(--rs-pad);width:816px;max-width:none;min-height:1056px;position:relative;box-sizing:border-box;margin:0;border-radius:4px}
 .resume.serif{--rs-font:Georgia,"Times New Roman",serif}
+.resume.measuring .no-print{display:none!important}
+.resume.hdr-center h1,.resume.hdr-center .contact{text-align:center}
+.resume .r-exp{position:relative}
+.resume .addln{position:absolute;left:0;bottom:calc(-1 * var(--rs-gap) * var(--rs) + 2px);margin:0;padding:0 7px;line-height:14px;font-size:10px;opacity:0;pointer-events:none;background:#fff}
+.resume .r-exp:hover .addln{opacity:.85;pointer-events:auto}
+.resume h2{text-transform:none;letter-spacing:0;font-size:calc(13px*var(--rs));padding-bottom:2px;border-bottom-width:1px}
+.resume.tpl-modern h2{text-transform:uppercase}
 .resume.fit-tight{--rs-lh:1.35;--rs-gap:8px;--rs-h2:13px;--rs-li:1px;--rs-pad:26px 32px}
 .resume h1{font-family:var(--rs-font);font-size:calc(30px*var(--rs));letter-spacing:-.02em}
 .resume .contact{font-size:calc(12.5px*var(--rs))}
@@ -612,7 +619,11 @@ code{background:var(--card-3);color:#2f6a4a}
 .resume .pg-guide{position:absolute;left:0;right:0;border-top:1px dashed #d33;pointer-events:none;z-index:2}
 .resume .pg-guide::after{content:"page break";position:absolute;right:8px;top:-8px;font:600 9px "Geist Mono","JetBrains Mono",monospace;color:#d33;background:#fff;padding:0 4px;letter-spacing:.06em}
 /* design bar */
-.rs-bar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:0 auto 10px;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:var(--card);position:sticky;top:0;z-index:5}
+.rs-bar{display:flex;flex-direction:column;gap:6px;margin:0 auto 10px;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:var(--card);position:sticky;top:0;z-index:5}
+.rs-row{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.rs-row+.rs-row{padding-top:6px;border-top:1px solid var(--line-soft)}
+.rs-bar .rs-lbl{font:500 11px "Geist","Inter",sans-serif;color:var(--ink-faint);padding:0 6px 0 8px}
+.rs-bar select{border:0;background:var(--card-2);color:var(--ink);font:600 11.5px "Geist","Inter",sans-serif;padding:5px 8px;cursor:pointer;outline:none}
 .rs-bar button{border:1px solid var(--line);background:var(--card-2);color:var(--ink-soft);font:600 11.5px "Geist","Inter",sans-serif;padding:5px 9px;border-radius:6px;cursor:pointer;line-height:1}
 .rs-bar button:hover{color:var(--ink);border-color:#444}
 .rs-bar button:disabled{opacity:.35;cursor:default}
@@ -3029,11 +3040,11 @@ function resumeInner(){
   const projBlocks=plist.map(p=>projBlockC(p.name,p.desc)).join("");
   const eduBlocks=(state.education||[]).filter(e=>e.school||e.degree).map(e=>eduBlockC(e.degree,e.school,e.dates)).join("");
   const secHTML={
-    sum: sum?`<h2 data-h="sum">Summary</h2><div class="r-sum" contenteditable="true">${esc(sum)}</div>`:"",
-    skills: (groups||skills.length)?`<h2 data-h="skills">Skills</h2>${skillBlock}`:"",
-    exp: (expBlocks||addedBlock)?`<h2 data-h="exp">Experience</h2><div class="r-sec" data-sec="exp">${expBlocks}${addedBlock}</div>`:"",
-    proj: projBlocks?`<h2 data-h="proj">Projects</h2><div class="r-sec" data-sec="proj">${projBlocks}</div>`:"",
-    edu: eduBlocks?`<h2 data-h="edu">Education</h2><div class="r-sec" data-sec="edu">${eduBlocks}</div>`:""
+    sum: sum?`<h2 contenteditable="true" data-h="sum">Summary</h2><div class="r-sum" contenteditable="true">${esc(sum)}</div>`:"",
+    skills: (groups||skills.length)?`<h2 contenteditable="true" data-h="skills">Skills</h2>${skillBlock}`:"",
+    exp: (expBlocks||addedBlock)?`<h2 contenteditable="true" data-h="exp">Experience</h2><div class="r-sec" data-sec="exp">${expBlocks}${addedBlock}</div>`:"",
+    proj: projBlocks?`<h2 contenteditable="true" data-h="proj">Projects</h2><div class="r-sec" data-sec="proj">${projBlocks}</div>`:"",
+    edu: eduBlocks?`<h2 contenteditable="true" data-h="edu">Education</h2><div class="r-sec" data-sec="edu">${eduBlocks}</div>`:""
   };
   const wrap=k=>secHTML[k]?`<div class="r-section" data-sec="${k}"><div class="sec-handle no-print" contenteditable="false" title="drag to reorder">⠿<button class="secbtn" data-act="sec-up" title="move up">▲</button><button class="secbtn" data-act="sec-down" title="move down">▼</button></div>${secHTML[k]}</div>`:"";
   return `<h1 contenteditable="true">${esc(state.name||"Your Name")}</h1>
@@ -3054,17 +3065,18 @@ function resumeBanner(){
   const sugNote=hasSug?`<div class="banner info no-print" style="max-width:800px;margin:0 auto 14px;border-color:var(--line);background:rgba(47,106,74,.10)">💡 On <strong>Step 3 · Tailor</strong> there are ${state.suggestedProj.length} high-relevance project idea${state.suggestedProj.length>1?"s":""} worth building.</div>`:"";
   const sep=tailored?`<div class="banner info no-print" style="max-width:800px;margin:0 auto 14px;border-color:var(--line);background:rgba(62,207,142,.08)">🔒 Separate from your <strong>Step 2 profile</strong> — edit freely here; add or remove lines, roles, and sections. <button class="btn sm accent" onclick="saveTailoredToProfile()" style="margin-left:6px">Save to my profile</button> <button class="btn sm ghost" onclick="clearTailoring()" style="margin-left:4px">reset tailoring</button>${editedNote}</div>`:(state.resumeEdited?`<div class="banner info no-print" style="max-width:800px;margin:0 auto 14px">✎ Edit freely — add/remove lines and sections.${editedNote}</div>`:"");
   const note=tailored?`<div class="banner info no-print" style="max-width:800px;margin:0 auto 14px">✎ Tailored for <strong>${esc(jd.role||"this role")}</strong> — written by <strong>${provTxt}</strong>. Highlighted numbers are placeholders — change them to your real figures.</div>`:"";
-  const bar=`<div class="banner no-print" style="max-width:800px;margin:0 auto 14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:rgba(47,106,74,.10);border-color:rgba(47,106,74,.28)"><button class="btn sm accent" onclick="openReview()">🔍 Expert review</button>${(state.jobs&&state.jobs[state.activeJob]&&state.jobs[state.activeJob].applyUrl)?`<a class="btn sm" style="background:#1c8a4c;border-color:#1c8a4c;color:#fff" href="${esc(state.jobs[state.activeJob].applyUrl)}" target="_blank" rel="noopener">🚀 Apply on company site ↗</a><button class="btn sm" style="background:#183527;border-color:#183527;color:#fff" onclick="browserApply(state.activeJob,this)">⚡ Auto-apply</button><label class="toggle" style="font-size:11.5px" title="Off = fill + screenshot only. On = actually submit."><input type="checkbox" id="wbLiveMode" onchange="localStorage.setItem('tailor_live',this.checked?'1':'');toast(this.checked?'Live: will submit the application':'Fill only')" ${(localStorage.getItem('tailor_live')==='1')?'checked':''}><span class="sw"></span>submit</label>`:""}<span class="muted" style="font-size:12px">Format (select text, then click):</span><button class="btn sm" onmousedown="fmt(event,'bold')" title="Bold (⌘B)" style="font-weight:800;min-width:32px">B</button><button class="btn sm" onmousedown="fmt(event,'italic')" title="Italic (⌘I)" style="font-style:italic;min-width:32px">I</button></div>`;
+  const bar=`<div class="banner no-print" style="max-width:800px;margin:0 auto 14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:rgba(47,106,74,.10);border-color:rgba(47,106,74,.28)"><button class="btn sm accent" onclick="openReview()">🔍 Expert review</button>${(state.jobs&&state.jobs[state.activeJob]&&state.jobs[state.activeJob].applyUrl)?`<a class="btn sm" style="background:#1c8a4c;border-color:#1c8a4c;color:#fff" href="${esc(state.jobs[state.activeJob].applyUrl)}" target="_blank" rel="noopener">🚀 Apply on company site ↗</a><button class="btn sm" style="background:#183527;border-color:#183527;color:#fff" onclick="browserApply(state.activeJob,this)">⚡ Auto-apply</button><label class="toggle" style="font-size:11.5px" title="Off = fill + screenshot only. On = actually submit."><input type="checkbox" id="wbLiveMode" onchange="localStorage.setItem('tailor_live',this.checked?'1':'');toast(this.checked?'Live: will submit the application':'Fill only')" ${(localStorage.getItem('tailor_live')==='1')?'checked':''}><span class="sw"></span>submit</label>`:""}</div>`;
   return bar+note+sep+sugNote;
 }
-const RESUME_TOOLBAR=`<div id="resumeAdd" class="no-print" style="max-width:800px;margin:12px auto 0;display:flex;gap:8px;flex-wrap:wrap;align-items:center"><span class="muted" style="font-size:12px">Add to resume:</span><button class="btn sm" data-act="add-exp">+ role</button><button class="btn sm" data-act="add-proj">+ project</button><button class="btn sm" data-act="add-edu">+ education</button><span style="flex:1"></span><button class="btn sm" data-act="copy-all">⎘ Copy all as text</button></div>`;
+const RESUME_TOOLBAR=`<div id="resumeAdd" class="no-print" style="max-width:800px;margin:12px auto 0;display:flex;gap:8px;flex-wrap:wrap;align-items:center"><span class="muted" style="font-size:12px">Add to resume:</span><button class="btn sm" data-act="add-exp">+ role</button><button class="btn sm" data-act="add-proj">+ project</button><button class="btn sm" data-act="add-edu">+ education</button><button class="btn sm" data-act="add-custom">+ custom section</button><span style="flex:1"></span><button class="btn sm" data-act="copy-all">⎘ Copy all as text</button></div>`;
 /* ── Résumé design: one sheet, true to the printed page ──────────────────────────────────
    The sheet is laid out at real page width (Letter 816px / A4 794px @96dpi) and scaled to
    fit the pane, so what you see is what prints. Style is per job: page, font, size, density,
    margins, accent, and a fit-to-one-page scale that shrinks type/spacing until it fits. */
 /* every spacing value is a number the user can drag: line height, bullet gap, section gap,
    heading gap, page margins (top/bottom and sides). Headings stay ink-black — no accent. */
-const RS_DEFAULT={page:"letter",font:"sans",tpl:"classic",size:13.5,lh:1.55,li:3,gap:15,h2:22,pad:44,padx:48,fit:true,scale:1,tight:false};
+const RS_DEFAULT={page:"letter",font:"sans",tpl:"classic",size:11.5,lh:1.35,li:1,gap:9,h2:12,pad:36,padx:40,hdr:"center",fit:true,scale:1,tight:false};
+const RS_MARGIN_PRESET={narrow:[24,28],normal:[36,40],wide:[52,56]};
 const RS_RANGE={size:[10.5,16,0.5],lh:[1.15,1.9,0.05],li:[0,10,1],gap:[6,40,1],h2:[8,36,1],pad:[16,72,2],padx:[16,80,2]};
 const RS_LABEL={size:"Type size",lh:"Line spacing",li:"Space between bullets",gap:"Space between roles",h2:"Space above headings",pad:"Margins · top & bottom",padx:"Margins · sides"};
 const RS_DENSITY={compact:{lh:1.4,gap:10,h2:15,li:2},normal:{lh:1.55,gap:15,h2:22,li:3},roomy:{lh:1.7,gap:20,h2:28,li:4}};   // legacy presets → numbers
@@ -3079,11 +3091,11 @@ function rstyle(){   // normalise IN PLACE — callers hold the reference across
   for(const k in RS_DEFAULT)if(st[k]===undefined)st[k]=RS_DEFAULT[k];
   return st;}
 function rsPageH(){return RS_PAGE[rstyle().page].h;}
-function rsContentH(d){const mh=d.style.minHeight;d.style.minHeight="0";const h=d.scrollHeight;d.style.minHeight=mh;return h;}   // the sheet is padded to a full page; measure the content
+function rsContentH(d){const mh=d.style.minHeight;d.style.minHeight="0";d.classList.add("measuring");const h=d.scrollHeight;d.classList.remove("measuring");d.style.minHeight=mh;return h;}   // content only: no min-height, no editing controls
 function applyResumeStyle(){
   const d=$("resumeDoc");if(!d)return;const st=rstyle();const pg=RS_PAGE[st.page]||RS_PAGE.letter;
   d.classList.toggle("serif",st.font==="serif");d.classList.toggle("a4",st.page==="a4");d.classList.toggle("fit-tight",!!(st.fit&&st.tight));
-  d.classList.toggle("tpl-modern",st.tpl==="modern");
+  d.classList.toggle("tpl-modern",st.tpl==="modern");d.classList.toggle("hdr-center",st.hdr!=="left");
   d.style.setProperty("--rs",st.scale);d.style.setProperty("--rs-base",st.size+"px");d.style.setProperty("--rs-lh",st.lh);
   d.style.setProperty("--rs-gap",st.gap+"px");d.style.setProperty("--rs-h2",st.h2+"px");d.style.setProperty("--rs-li",st.li+"px");
   d.style.setProperty("--rs-pad",st.pad+"px "+st.padx+"px");
@@ -3100,6 +3112,7 @@ function rsSetNum(key,val){const st=rstyle();const [lo,hi]=RS_RANGE[key]||[0,999
   st[key]=Math.round(v*100)/100;persist();applyResumeStyle();if(st.fit)fitOnePage();else{st.scale=1;applyResumeStyle();}rsAfterLayout();renderDesignBar();
   const pop=$("rsPop");if(pop)pop.classList.add("open");const out=pop&&pop.querySelector(`[data-out="${key}"]`);if(out)out.textContent=rsFmt(key,st[key]);}
 function rsFmt(k,v){return k==="lh"?(+v).toFixed(2)+"×":k==="size"?v+"px":v+"px";}
+function rsMarginPreset(k){const st=rstyle();const v=RS_MARGIN_PRESET[k];if(!v)return;st.pad=v[0];st.padx=v[1];persist();applyResumeStyle();if(st.fit)fitOnePage();rsAfterLayout();renderDesignBar();}
 function rsResetSpacing(){const st=rstyle();["lh","li","gap","h2","pad","padx","size"].forEach(k=>st[k]=RS_DEFAULT[k]);persist();applyResumeStyle();if(st.fit)fitOnePage();rsAfterLayout();renderDesignBar();const pop=$("rsPop");if(pop)pop.classList.add("open");}
 function rsTogglePop(){const pop=$("rsPop");if(pop)pop.classList.toggle("open");}
 document.addEventListener("click",e=>{const pop=$("rsPop");if(pop&&pop.classList.contains("open")&&!e.target.closest("#rsPop")&&!e.target.closest("[data-pop]"))pop.classList.remove("open");});
@@ -3143,21 +3156,31 @@ function renderDesignBar(histOnly){
   const host=$("rsBar");if(!host)return;const st=rstyle();const popOpen=!!($("rsPop")&&$("rsPop").classList.contains("open"));
   if(histOnly){const u=host.querySelector("[data-undo]"),r=host.querySelector("[data-redo]");if(u)u.disabled=RS_HIST.i<=0;if(r)r.disabled=RS_HIST.i>=RS_HIST.stack.length-1;return;}
   const seg=(key,opts)=>`<span class="rs-seg">${opts.map(([v,l])=>`<button class="${st[key]===v?"on":""}" onclick="rsSet('${key}','${v}')">${l}</button>`).join("")}</span>`;
+  const marginPreset=Object.keys(RS_MARGIN_PRESET).find(k=>RS_MARGIN_PRESET[k][0]===st.pad&&RS_MARGIN_PRESET[k][1]===st.padx)||"custom";
   host.innerHTML=`
+   <div class="rs-row">
+    <span class="rs-seg" title="Select text, then format"><button onmousedown="fmt(event,'bold')"><b>B</b></button><button onmousedown="fmt(event,'italic')"><i>I</i></button><button onmousedown="fmt(event,'underline')"><u>U</u></button></span>
+    <span class="rs-seg" title="Lists"><button onmousedown="fmt(event,'insertUnorderedList')" title="Bullet list">•</button><button onmousedown="fmt(event,'insertOrderedList')" title="Numbered list">1.</button></span>
+    <span class="rs-seg" title="Align the selected block"><button onmousedown="fmt(event,'justifyLeft')" title="Align left">⫷</button><button onmousedown="fmt(event,'justifyCenter')" title="Center">☰</button><button onmousedown="fmt(event,'justifyRight')" title="Align right">⫸</button></span>
+    <span class="rs-seg" title="Type size"><span class="rs-lbl">Size</span><button onclick="rsSet('size',-0.5)">A−</button><b>${st.size}</b><button onclick="rsSet('size',0.5)">A+</button></span>
+    <span class="rs-seg" title="Line spacing"><span class="rs-lbl">Space</span><button onclick="rsSetNum('lh',${st.lh}-0.05)">↕−</button><b>${(+st.lh).toFixed(2)}</b><button onclick="rsSetNum('lh',${st.lh}+0.05)">↕+</button></span>
+    <span class="rs-seg" title="Page margins"><span class="rs-lbl">Margin</span><select onchange="rsMarginPreset(this.value)"><option value="narrow"${marginPreset==="narrow"?" selected":""}>Narrow</option><option value="normal"${marginPreset==="normal"?" selected":""}>Normal</option><option value="wide"${marginPreset==="wide"?" selected":""}>Wide</option>${marginPreset==="custom"?'<option value="custom" selected>Custom</option>':""}</select></span>
+    ${seg("hdr",[["center","Centered header"],["left","Left header"]])}
+    <button onmousedown="fmt(event,'removeFormat')" title="Clear formatting">Tx</button>
+   </div>
+   <div class="rs-row">
     <button class="rs-fit ${st.fit?"on":""}" onclick="rsToggleFit()" title="Shrink type and spacing until the résumé fits on one page">${st.fit?"✓ ":""}Fit to one page</button>
     ${seg("page",[["letter","Letter"],["a4","A4"]])}
     ${seg("font",[["sans","Sans"],["serif","Serif"]])}
-    <span class="rs-seg" title="Base type size"><button onclick="rsSet('size',-0.5)">A−</button><b>${st.size}</b><button onclick="rsSet('size',0.5)">A+</button></span>
     ${seg("tpl",[["classic","Classic"],["modern","Modern"]])}
     <span class="rs-popwrap"><button data-pop class="${$("rsPop")&&$("rsPop").classList.contains("open")?"on":""}" onclick="rsTogglePop()" title="Line spacing, bullet gap, section gap, heading gap, margins">Spacing ▾</button>
       <div class="rs-pop" id="rsPop">${["lh","li","gap","h2","pad","padx"].map(k=>{const [lo,hi,step]=RS_RANGE[k];return `<label><span>${RS_LABEL[k]}</span><input type="range" min="${lo}" max="${hi}" step="${step}" value="${st[k]}" oninput="rsSetNum('${k}',this.value)"><b data-out="${k}">${rsFmt(k,st[k])}</b></label>`;}).join("")}
         <div class="rs-pop-foot"><button onclick="rsResetSpacing()">Reset spacing</button><span class="muted">Fit to one page may tighten these further while it's on.</span></div></div></span>
-    <span class="rs-sep"></span>
-    <span class="rs-seg" title="Select text, then format"><button onmousedown="fmt(event,'bold')"><b>B</b></button><button onmousedown="fmt(event,'italic')"><i>I</i></button><button onmousedown="fmt(event,'underline')"><u>U</u></button><button onmousedown="fmt(event,'insertUnorderedList')" title="Bullet list">•≡</button><button onmousedown="fmt(event,'removeFormat')" title="Clear formatting">Tx</button></span>
     <span class="rs-seg"><button data-undo onclick="undoResume()" title="Undo (⌘Z)" ${RS_HIST.i<=0?"disabled":""}>↶</button><button data-redo onclick="redoResume()" title="Redo (⇧⌘Z)" ${RS_HIST.i>=RS_HIST.stack.length-1?"disabled":""}>↷</button></span>
     <span class="rs-seg rs-secs" title="Show / hide sections">${SECTIONS.map(k=>`<button class="${(state.secHidden||[]).includes(k)?"":"on"}" onclick="rsToggleSec('${k}')">${SEC_LABEL[k]}</button>`).join("")}</span>
     <button class="rs-plain" onclick="copyResumeText()" title="Copy the whole résumé as plain text (for ATS boxes)">Copy as text</button>
-    <span class="rs-meter" id="rsMeter"></span>`;
+    <span class="rs-meter" id="rsMeter"></span>
+   </div>`;
   if(popOpen)$("rsPop").classList.add("open");
   rsMeter();
 }
@@ -3174,14 +3197,14 @@ function paintResume(){
 function buildResume(){ state.resumeEdited=false; state.resumeDoc=null; paintResume(); }
 function saveResumeDoc(){ const d=$("resumeDoc"); if(!d)return; state.resumeDoc=d.innerHTML; state.resumeEdited=true; try{localStorage.setItem("tailor_ollama",JSON.stringify({state,jd:{...jd},chosenSummary}));}catch(e){}
   clearTimeout(window._rsT);window._rsT=setTimeout(()=>{rsPush(d.innerHTML);if(rstyle().fit)fitOnePage();rsAfterLayout();},350); }
-window.rsSet=rsSet;window.rsSetNum=rsSetNum;window.rsResetSpacing=rsResetSpacing;window.rsTogglePop=rsTogglePop;window.rsToggleFit=rsToggleFit;window.fitOnePage=fitOnePage;window.undoResume=undoResume;window.redoResume=redoResume;window.rsToggleSec=rsToggleSec;window.copyResumeText=copyResumeText;
+window.rsSet=rsSet;window.rsSetNum=rsSetNum;window.rsMarginPreset=rsMarginPreset;window.rsResetSpacing=rsResetSpacing;window.rsTogglePop=rsTogglePop;window.rsToggleFit=rsToggleFit;window.fitOnePage=fitOnePage;window.undoResume=undoResume;window.redoResume=redoResume;window.rsToggleSec=rsToggleSec;window.copyResumeText=copyResumeText;
 function ensureSection(kind){
   const doc=$("resumeDoc");let sec=doc.querySelector(`.r-sec[data-sec="${kind}"]`);
   if(sec)return sec;
   const label={exp:"Experience",proj:"Projects",edu:"Education"}[kind];
   sec=document.createElement("div");sec.className="r-sec";sec.dataset.sec=kind;
   const wrap=document.createElement("div");wrap.className="r-section";wrap.dataset.sec=kind;
-  wrap.innerHTML=`<div class="sec-handle no-print" contenteditable="false" title="drag to reorder">⠿<button class="secbtn" data-act="sec-up" title="move up">▲</button><button class="secbtn" data-act="sec-down" title="move down">▼</button></div><h2 data-h="${kind}">${label}</h2>`;
+  wrap.innerHTML=`<div class="sec-handle no-print" contenteditable="false" title="drag to reorder">⠿<button class="secbtn" data-act="sec-up" title="move up">▲</button><button class="secbtn" data-act="sec-down" title="move down">▼</button></div><h2 contenteditable="true" data-h="${kind}">${label}</h2>`;
   wrap.appendChild(sec);
   const order=sectionOrder();const after=order.slice(order.indexOf(kind)+1);
   let ref=null;for(const k of after){const el=doc.querySelector(`.r-section[data-sec="${k}"]`);if(el){ref=el;break;}}
@@ -3194,6 +3217,9 @@ function resumeAction(act,el){
   if(act==="del-li"){const li=el.closest("li");if(li)li.remove();}
   else if(act==="add-li"){const blk=el.closest(".r-exp");const ul=(el.previousElementSibling&&el.previousElementSibling.tagName==="UL")?el.previousElementSibling:(blk&&blk.querySelector("ul"));if(ul){const tmp=document.createElement("template");tmp.innerHTML=liC("");ul.appendChild(tmp.content.firstChild);const sp=ul.lastElementChild.querySelector(".r-t");if(sp)sp.focus();}}
   else if(act==="del-block"){const blk=el.closest(".r-exp");if(blk){const sec=blk.parentElement;blk.remove();if(sec&&sec.classList.contains("r-sec")&&!sec.querySelector(".r-exp")){const wrap=sec.closest(".r-section");if(wrap)wrap.remove();else sec.remove();}}}
+  else if(act==="add-custom"){const doc=$("resumeDoc");const n=doc.querySelectorAll('.r-section[data-sec^="custom"]').length+1;const wrap=document.createElement("div");wrap.className="r-section";wrap.dataset.sec="custom"+n;
+    wrap.innerHTML=`<div class="sec-handle no-print" contenteditable="false" title="drag to reorder">⠿<button class="secbtn" data-act="sec-up" title="move up">▲</button><button class="secbtn" data-act="sec-down" title="move down">▼</button></div><h2 contenteditable="true" data-h="custom">New section</h2><div class="r-sum" contenteditable="true">Write here — or turn this into a list with the • button.</div>`;
+    doc.appendChild(wrap);const h=wrap.querySelector("h2");if(h){const r=document.createRange();r.selectNodeContents(h);const sel=window.getSelection();sel.removeAllRanges();sel.addRange(r);h.focus();}}
   else if(act==="add-exp"||act==="add-proj"||act==="add-edu"){const kind=act.split("-")[1];const sec=ensureSection(kind);const html=kind==="exp"?expBlockC("New role","","",[""]):kind==="proj"?projBlockC("New project",""):eduBlockC("Degree","School","");const tmp=document.createElement("template");tmp.innerHTML=html;sec.appendChild(tmp.content.firstChild);const f=sec.lastElementChild.querySelector('[contenteditable="true"]');if(f)f.focus();}
   else if(act==="sec-up"||act==="sec-down"){const sec=el.closest(".r-section");if(sec){const sib=act==="sec-up"?sec.previousElementSibling:sec.nextElementSibling;if(sib&&sib.classList&&sib.classList.contains("r-section")){if(act==="sec-up")sec.parentNode.insertBefore(sec,sib);else sec.parentNode.insertBefore(sib,sec);}}saveSectionOrder();return;}
   else if(act==="copy-block"){const blk=el.closest(".r-exp");if(blk)copyResumePart(blk,"role");return;}
@@ -3237,14 +3263,15 @@ function resumeExportCSS(){
 .resume{font-family:${font};color:#1c1c28;width:${pg.w}px;min-height:${pg.h}px;margin:0 auto;padding:${pad}px ${padx}px;background:#fff}
 h1{font-family:${font};font-size:${px(30)};margin:0;letter-spacing:-.02em;font-weight:700}
 .contact{font-size:${px(12.5)};color:#666;margin-top:4px;font-family:${modern?font:"'Geist Mono','JetBrains Mono',Menlo,monospace"}}
-h2{font-family:${font};font-size:${px(13.5)};text-transform:uppercase;letter-spacing:.08em;color:#1c1c28;border-bottom:2px solid #1c1c28;padding-bottom:4px;margin:${px(h2)} 0 ${px(10)}}
+h2{font-family:${font};font-size:${px(13)};color:#1c1c28;border-bottom:1px solid #1c1c28;padding-bottom:2px;margin:${px(h2)} 0 ${px(8)}}
+${st.hdr!=="left"?"h1,.contact{text-align:center}":""}
 .r-sum,li,.r-skline{font-size:${px(st.size)};line-height:${lh}}
 .r-exp{margin-bottom:${px(gap)}}.rh{display:flex;align-items:center;gap:8px}.rh>*:first-child{flex:1 1 auto}
 .rc{font-weight:700;font-size:${px(14.5)}}.rp{font-style:italic;font-size:${px(13)};color:#555}.rd{font-family:'Geist Mono','JetBrains Mono',Menlo,monospace;font-size:${px(11.5)};color:#777;white-space:nowrap}
 ul{margin:${px(5)} 0 0;padding-left:18px}li{margin-bottom:${px(li)}}
 .r-skills-cat{display:flex;flex-direction:column;gap:${px(4)}}.r-skline .cat{font-weight:700}
 .sublabel{font-weight:700;font-size:${px(12)};color:#333;margin:7px 0 1px}
-${modern?`.resume{--x:0}h1{font-size:${px(26)}}.contact{color:#444}h2{border-bottom:0;border-top:1px solid #d8d8d8;padding:${px(8)} 0 0;font-size:${px(11)};letter-spacing:.14em;color:#555}`:""}
+${modern?`h1{font-size:${px(26)}}.contact{color:#444}h2{text-transform:uppercase;border-bottom:0;border-top:1px solid #d8d8d8;padding:${px(8)} 0 0;font-size:${px(11)};letter-spacing:.14em;color:#555}`:""}
 @media print{.resume{box-shadow:none;border:0}}`;
 }
 function resumeExportDoc(){

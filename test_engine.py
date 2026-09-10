@@ -1254,6 +1254,11 @@ def test_public_board_private_everything_else():
     check("paid actions ask for sign-in, need a résumé, and spend before running",
           "if(!canUse())return requireAuth(()=>runPaid(action)" in idx and "if(!hasProfileData())" in idx.split("async function runPaid")[1].split("async function analyzeOnly")[0]
           and "if(!(await spendCredits(action)))return;" in idx)
+    check("step buttons toggle panes (show / hide), and go() only ensures a pane is visible",
+          'addEventListener("click",()=>toggleSplitPane(b.dataset.p))' in idx and 'state.split=["jd","tailor","resume"];persist();applySplit();' not in idx)
+    check("résumé design system: real page width scaled to the pane, fit-to-one-page, undo/redo, sections, meter",
+          all(x in idx for x in ("function fitOnePage", "function rsScale", "function rsMeter", "function undoResume", "function rsToggleSec",
+                                 'id="rsView"', 'id="rsBar"', "--rs-base", "@page{size:", '"resumeStyle","secHidden"', "Fit to one page")))
     check("visitors get newest-first search, no résumé ranking (they have no résumé)",
           'oninput="searchSoon()"' in dash and 'if(anon&&$("fSort"))$("fSort").value="new";' in dash and 'const hits=anon?[]' in dash)
 

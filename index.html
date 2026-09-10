@@ -593,6 +593,41 @@ code{background:var(--card-3);color:#2f6a4a}
 .jv-actions{position:sticky;bottom:0;display:flex;gap:8px;align-items:center;padding:12px 24px;border-top:1px solid var(--line);background:var(--card-2)}
 .jv-credits{margin-right:auto;font-size:13px;color:var(--ink-soft)}
 .cr-cost{font:500 11px "Geist Mono","JetBrains Mono",monospace;opacity:.7}
+/* ── résumé sheet: real page width, scaled to the pane; every size hangs off --rs ── */
+.rs-view{max-width:100%;overflow:visible;margin:0 auto}
+.resume{--rs:1;--rs-font:"Geist","Inter",system-ui,sans-serif;--rs-base:13.5px;--rs-lh:1.55;--rs-pad:44px 48px;--rs-gap:15px;--rs-h2:22px;--rs-li:3px;--rs-accent:#1c1c28;
+  font-family:var(--rs-font);padding:var(--rs-pad);width:816px;max-width:none;min-height:1056px;position:relative;box-sizing:border-box;margin:0;border-radius:4px}
+.resume.serif{--rs-font:Georgia,"Times New Roman",serif}
+.resume.fit-tight{--rs-lh:1.35;--rs-gap:8px;--rs-h2:13px;--rs-li:1px;--rs-pad:26px 32px}
+.resume h1{font-family:var(--rs-font);font-size:calc(30px*var(--rs));letter-spacing:-.02em}
+.resume .contact{font-size:calc(12.5px*var(--rs))}
+.resume h2{font-family:var(--rs-font);font-size:calc(13.5px*var(--rs));color:var(--rs-accent);border-bottom:2px solid var(--rs-accent);margin:calc(var(--rs-h2)*var(--rs)) 0 calc(10px*var(--rs))}
+.resume .r-sum,.resume .r-exp li,.resume .r-skline{font-size:calc(var(--rs-base)*var(--rs));line-height:var(--rs-lh)}
+.resume .r-exp{margin-bottom:calc(var(--rs-gap)*var(--rs))}
+.resume .r-exp .rc{font-size:calc(14.5px*var(--rs))}.resume .r-exp .rp{font-size:calc(13px*var(--rs))}.resume .r-exp .rd{font-size:calc(11.5px*var(--rs))}
+.resume .r-exp li{margin-bottom:calc(var(--rs-li)*var(--rs))}
+.resume .r-exp ul{margin-top:calc(5px*var(--rs))}
+.resume .r-skills-cat{gap:calc(4px*var(--rs))}
+.resume.hide-sum .r-section[data-sec="sum"],.resume.hide-skills .r-section[data-sec="skills"],.resume.hide-exp .r-section[data-sec="exp"],.resume.hide-proj .r-section[data-sec="proj"],.resume.hide-edu .r-section[data-sec="edu"]{display:none}
+.resume .pg-guide{position:absolute;left:0;right:0;border-top:1px dashed #d33;pointer-events:none;z-index:2}
+.resume .pg-guide::after{content:"page break";position:absolute;right:8px;top:-8px;font:600 9px "Geist Mono","JetBrains Mono",monospace;color:#d33;background:#fff;padding:0 4px;letter-spacing:.06em}
+/* design bar */
+.rs-bar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:0 auto 10px;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:var(--card);position:sticky;top:0;z-index:5}
+.rs-bar button{border:1px solid var(--line);background:var(--card-2);color:var(--ink-soft);font:600 11.5px "Geist","Inter",sans-serif;padding:5px 9px;border-radius:6px;cursor:pointer;line-height:1}
+.rs-bar button:hover{color:var(--ink);border-color:#444}
+.rs-bar button:disabled{opacity:.35;cursor:default}
+.rs-bar button.on,.rs-bar .rs-fit.on{background:#ededed;color:#0a0a0a;border-color:#ededed}
+.rs-bar .rs-seg{display:inline-flex;border:1px solid var(--line);border-radius:7px;overflow:hidden;align-items:center}
+.rs-bar .rs-seg button{border:0;border-radius:0;border-right:1px solid var(--line)}
+.rs-bar .rs-seg button:last-child{border-right:0}
+.rs-bar .rs-seg b{font:600 11.5px "Geist Mono","JetBrains Mono",monospace;padding:0 7px;color:var(--ink)}
+.rs-bar .rs-accent button{width:22px;height:22px;padding:0;border:2px solid transparent}
+.rs-bar .rs-accent button.on{border-color:#fff}
+.rs-bar .rs-sep{width:1px;height:20px;background:var(--line);margin:0 2px}
+.rs-bar .rs-secs button.on{background:rgba(255,255,255,.1);color:var(--ink)}
+.rs-bar .rs-meter{margin-left:auto;font:500 11.5px "Geist Mono","JetBrains Mono",monospace;color:var(--ink-soft)}
+.rs-bar .rs-meter b{color:var(--good)}.rs-bar .rs-meter b.over{color:var(--gap)}
+@media print{.rs-view{height:auto!important;transform:none!important}.resume{transform:none!important;box-shadow:none;border:0;margin:0;width:auto!important;min-height:0!important;border-radius:0}.rs-bar,.pg-guide{display:none!important}}
 </style>
 <script src="filters.js"></script>
 <link rel="stylesheet" href="theme.css">
@@ -1195,7 +1230,7 @@ let jd={raw:"",role:"",seniority:"",years:null,sponsorship:"unknown",skills:[],s
 /* ============ MULTI-JOB WORKSPACES ============
    One master profile, many jobs. Each job carries its own JD + entire tailoring context.
    The app's working fields stay as-is; we snapshot/load them around the active job. */
-const JOB_FIELDS=["tailoredExp","tailoredSkills","skillGroups","suggestedProj","suggestKey","projHide","sugAdded","sugList","sugKey","addedSkills","addedBullets","fit","resumeDoc","resumeEdited","secOrder","review","tailorGuide"];
+const JOB_FIELDS=["resumeStyle","secHidden","tailoredExp","tailoredSkills","skillGroups","suggestedProj","suggestKey","projHide","sugAdded","sugList","sugKey","addedSkills","addedBullets","fit","resumeDoc","resumeEdited","secOrder","review","tailorGuide"];
 const MAX_JOBS=25;
 function blankJD(){return {raw:"",role:"",seniority:"",years:null,sponsorship:"unknown",skills:[],segment:"",resp:[],company:"",companyBlurb:""};}
 function newJob(){const j={id:Date.now().toString(36)+Math.random().toString(36).slice(2,6),jd:blankJD(),chosenSummary:""};JOB_FIELDS.forEach(f=>{j[f]=(f==="addedSkills"||f==="addedBullets")?[]:(f==="sugAdded")?{}:(f==="tailorGuide")?"":null;});return j;}
@@ -1712,7 +1747,9 @@ function extractRespRB(raw){
 /* ============================================================
    NAV
    ============================================================ */
-document.querySelectorAll(".step").forEach(b=>b.addEventListener("click",()=>go(b.dataset.p)));
+/* Step buttons are pane toggles: click to show a pane beside the others, click again to hide it
+   (at least one stays). Programmatic go() only makes sure a pane is visible. */
+document.querySelectorAll(".step").forEach(b=>{b.title="Show / hide this pane";b.addEventListener("click",()=>toggleSplitPane(b.dataset.p));});
 function goSingle(p){
   document.body.classList.remove("split","split3");
   document.querySelectorAll(".wrap .gutter").forEach(g=>g.remove());
@@ -1779,7 +1816,9 @@ function go(p){
   if(p==="profile"){if($("profileView"))$("profileView").style.display="";if($("profileEdit"))$("profileEdit").style.display="none";renderProfileView();goSingle("profile");renderJobTabs();return;}
   // Tailoring is a working view: show JD + Tailor + Resume side by side by default.
   if(p==="tailor"||p==="resume"){
-    state.split=["jd","tailor","resume"];persist();applySplit();
+    let sp=getSplit();if(!sp.length){const cur=currentPanel();if(["jd","tailor","resume"].includes(cur))sp=[cur];}
+    if(!sp.includes(p))sp.push(p);
+    state.split=["jd","tailor","resume"].filter(x=>sp.includes(x));persist();applySplit();
     const el=$("p-"+p);if(el&&el.scrollIntoView)setTimeout(()=>el.scrollIntoView({behavior:"smooth",block:"nearest"}),40);
     return;
   }
@@ -3007,14 +3046,104 @@ function resumeBanner(){
   return bar+note+sep+sugNote;
 }
 const RESUME_TOOLBAR=`<div id="resumeAdd" class="no-print" style="max-width:800px;margin:12px auto 0;display:flex;gap:8px;flex-wrap:wrap;align-items:center"><span class="muted" style="font-size:12px">Add to resume:</span><button class="btn sm" data-act="add-exp">+ role</button><button class="btn sm" data-act="add-proj">+ project</button><button class="btn sm" data-act="add-edu">+ education</button><span style="flex:1"></span><button class="btn sm" data-act="copy-all">⎘ Copy all as text</button></div>`;
+/* ── Résumé design: one sheet, true to the printed page ──────────────────────────────────
+   The sheet is laid out at real page width (Letter 816px / A4 794px @96dpi) and scaled to
+   fit the pane, so what you see is what prints. Style is per job: page, font, size, density,
+   margins, accent, and a fit-to-one-page scale that shrinks type/spacing until it fits. */
+const RS_DEFAULT={page:"letter",font:"sans",size:13.5,density:"normal",margins:"normal",accent:"#1c1c28",fit:true,scale:1};
+const RS_DENSITY={compact:{lh:1.4,gap:10,h2:15,li:2},normal:{lh:1.55,gap:15,h2:22,li:3},roomy:{lh:1.7,gap:20,h2:28,li:4}};
+const RS_MARGINS={narrow:"28px 34px",normal:"44px 48px",wide:"58px 64px"};
+const RS_PAGE={letter:{w:816,h:1056,css:"letter"},a4:{w:794,h:1123,css:"A4"}};
+function rstyle(){   // normalise IN PLACE — callers hold the reference across other rstyle() calls
+  if(!state.resumeStyle||typeof state.resumeStyle!=="object")state.resumeStyle={};
+  for(const k in RS_DEFAULT)if(state.resumeStyle[k]===undefined)state.resumeStyle[k]=RS_DEFAULT[k];
+  return state.resumeStyle;}
+function rsPageH(){return RS_PAGE[rstyle().page].h;}
+function rsContentH(d){const mh=d.style.minHeight;d.style.minHeight="0";const h=d.scrollHeight;d.style.minHeight=mh;return h;}   // the sheet is padded to a full page; measure the content
+function applyResumeStyle(){
+  const d=$("resumeDoc");if(!d)return;const st=rstyle();const den=RS_DENSITY[st.density]||RS_DENSITY.normal;const pg=RS_PAGE[st.page]||RS_PAGE.letter;
+  d.classList.toggle("serif",st.font==="serif");d.classList.toggle("a4",st.page==="a4");d.classList.toggle("fit-tight",!!(st.fit&&st.tight));
+  d.style.setProperty("--rs",st.scale);d.style.setProperty("--rs-base",st.size+"px");d.style.setProperty("--rs-lh",den.lh);
+  d.style.setProperty("--rs-gap",den.gap+"px");d.style.setProperty("--rs-h2",den.h2+"px");d.style.setProperty("--rs-li",den.li+"px");
+  d.style.setProperty("--rs-pad",RS_MARGINS[st.margins]||RS_MARGINS.normal);d.style.setProperty("--rs-accent",st.accent);
+  d.style.width=pg.w+"px";d.style.minHeight=pg.h+"px";
+  SECTIONS.forEach(k=>d.classList.toggle("hide-"+k,(state.secHidden||[]).includes(k)));
+  let pr=document.getElementById("rsPageRule");if(!pr){pr=document.createElement("style");pr.id="rsPageRule";document.head.appendChild(pr);}
+  pr.textContent=`@page{size:${pg.css};margin:0}`;
+}
+function rsSet(key,val){const st=rstyle();
+  if(key==="size")val=Math.max(10.5,Math.min(16,(+st.size||13.5)+(+val)));
+  st[key]=val;persist();applyResumeStyle();if(st.fit)fitOnePage();else{st.scale=1;applyResumeStyle();}rsAfterLayout();renderDesignBar();}
+function fitOnePage(){
+  /* Three stages, least visible first: shrink type a little (→88%), then tighten spacing and
+     margins (a .fit-tight class — the user's own density/margins choice is untouched), then
+     keep shrinking type down to 72%. Stops as soon as the content fits one page. */
+  const d=$("resumeDoc");if(!d)return;const st=rstyle();const H=rsPageH();let sc=1;d.style.setProperty("--rs",sc);d.classList.remove("fit-tight");
+  const over=()=>rsContentH(d)>H;let guard=0;
+  while(over()&&sc>0.88&&guard++<40){sc=Math.round((sc-0.02)*100)/100;d.style.setProperty("--rs",sc);}
+  if(over()){d.classList.add("fit-tight");}
+  while(over()&&sc>0.72&&guard++<40){sc=Math.round((sc-0.02)*100)/100;d.style.setProperty("--rs",sc);}
+  st.scale=sc;st.tight=d.classList.contains("fit-tight");persist();rsAfterLayout();
+}
+function rsToggleFit(){const st=rstyle();st.fit=!st.fit;persist();if(st.fit)fitOnePage();else{st.scale=1;st.tight=false;applyResumeStyle();rsAfterLayout();}renderDesignBar();}
+function rsScale(){  // scale the real-width sheet down to the pane, keeping layout (and print) intact
+  const v=$("rsView"),d=$("resumeDoc");if(!v||!d)return;const k=Math.min(1,(v.clientWidth||d.offsetWidth)/d.offsetWidth);
+  d.style.transform=k<1?`scale(${k})`:"";d.style.transformOrigin="top left";v.style.height=k<1?(d.offsetHeight*k)+"px":"";
+}
+function rsMeter(){
+  const d=$("resumeDoc"),m=$("rsMeter");if(!d||!m)return;const H=rsPageH();const h=rsContentH(d);const pages=Math.max(1,Math.ceil((h-2)/H));const fill=Math.round(h/H*100);
+  d.querySelectorAll(".pg-guide").forEach(g=>g.remove());
+  for(let n=1;n<pages;n++){const g=document.createElement("div");g.className="pg-guide no-print";g.style.top=(n*H)+"px";d.appendChild(g);}
+  const words=(d.innerText||"").split(/\s+/).filter(Boolean).length;
+  m.innerHTML=`<b class="${pages>1?"over":""}">${pages} page${pages>1?"s":""}</b> · ${fill}% of a page · ${words} words${rstyle().scale<1?` · <span title="Fit to one page shrank type to ${Math.round(rstyle().scale*100)}%${rstyle().tight?" and tightened spacing":""}">${Math.round(rstyle().scale*100)}% type${rstyle().tight?" · tight":""}</span>`:""}`;
+}
+function rsAfterLayout(){applyResumeStyle();rsMeter();rsScale();}
+/* undo / redo across in-place edits (contenteditable's own undo is per element) */
+const RS_HIST={stack:[],i:-1,max:60};
+function rsPush(html){if(RS_HIST.stack[RS_HIST.i]===html)return;RS_HIST.stack=RS_HIST.stack.slice(0,RS_HIST.i+1);RS_HIST.stack.push(html);if(RS_HIST.stack.length>RS_HIST.max)RS_HIST.stack.shift();RS_HIST.i=RS_HIST.stack.length-1;renderDesignBar(true);}
+function rsRestore(i){const d=$("resumeDoc");if(!d||i<0||i>=RS_HIST.stack.length)return;RS_HIST.i=i;d.innerHTML=RS_HIST.stack[i];state.resumeDoc=d.innerHTML;state.resumeEdited=true;persist();if(rstyle().fit)fitOnePage();else rsAfterLayout();renderDesignBar(true);}
+function undoResume(){rsRestore(RS_HIST.i-1);}
+function redoResume(){rsRestore(RS_HIST.i+1);}
+document.addEventListener("keydown",e=>{const d=$("resumeDoc");if(!d||!d.contains(e.target))return;
+  if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==="z"){e.preventDefault();if(e.shiftKey)redoResume();else undoResume();}
+  if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==="y"){e.preventDefault();redoResume();}});
+function rsToggleSec(k){const h=new Set(state.secHidden||[]);if(h.has(k))h.delete(k);else h.add(k);state.secHidden=[...h];persist();applyResumeStyle();if(rstyle().fit)fitOnePage();rsAfterLayout();renderDesignBar();}
+function copyResumeText(){const d=$("resumeDoc");if(d)copyResumePart(d,"résumé");}
+const SEC_LABEL={sum:"Summary",skills:"Skills",exp:"Experience",proj:"Projects",edu:"Education"};
+function renderDesignBar(histOnly){
+  const host=$("rsBar");if(!host)return;const st=rstyle();
+  if(histOnly){const u=host.querySelector("[data-undo]"),r=host.querySelector("[data-redo]");if(u)u.disabled=RS_HIST.i<=0;if(r)r.disabled=RS_HIST.i>=RS_HIST.stack.length-1;return;}
+  const seg=(key,opts)=>`<span class="rs-seg">${opts.map(([v,l])=>`<button class="${st[key]===v?"on":""}" onclick="rsSet('${key}','${v}')">${l}</button>`).join("")}</span>`;
+  host.innerHTML=`
+    <button class="rs-fit ${st.fit?"on":""}" onclick="rsToggleFit()" title="Shrink type and spacing until the résumé fits on one page">${st.fit?"✓ ":""}Fit to one page</button>
+    ${seg("page",[["letter","Letter"],["a4","A4"]])}
+    ${seg("font",[["sans","Sans"],["serif","Serif"]])}
+    <span class="rs-seg" title="Base type size"><button onclick="rsSet('size',-0.5)">A−</button><b>${st.size}</b><button onclick="rsSet('size',0.5)">A+</button></span>
+    ${seg("density",[["compact","Compact"],["normal","Normal"],["roomy","Roomy"]])}
+    ${seg("margins",[["narrow","Narrow"],["normal","Margins"],["wide","Wide"]])}
+    <span class="rs-seg rs-accent" title="Heading accent">${["#1c1c28","#0b57d0","#1f7a4d","#8a3ffc","#b4232c"].map(c=>`<button class="${st.accent===c?"on":""}" style="background:${c}" onclick="rsSet('accent','${c}')"></button>`).join("")}</span>
+    <span class="rs-sep"></span>
+    <span class="rs-seg" title="Select text, then format"><button onmousedown="fmt(event,'bold')"><b>B</b></button><button onmousedown="fmt(event,'italic')"><i>I</i></button><button onmousedown="fmt(event,'underline')"><u>U</u></button><button onmousedown="fmt(event,'insertUnorderedList')" title="Bullet list">•≡</button><button onmousedown="fmt(event,'removeFormat')" title="Clear formatting">Tx</button></span>
+    <span class="rs-seg"><button data-undo onclick="undoResume()" title="Undo (⌘Z)" ${RS_HIST.i<=0?"disabled":""}>↶</button><button data-redo onclick="redoResume()" title="Redo (⇧⌘Z)" ${RS_HIST.i>=RS_HIST.stack.length-1?"disabled":""}>↷</button></span>
+    <span class="rs-seg rs-secs" title="Show / hide sections">${SECTIONS.map(k=>`<button class="${(state.secHidden||[]).includes(k)?"":"on"}" onclick="rsToggleSec('${k}')">${SEC_LABEL[k]}</button>`).join("")}</span>
+    <button class="rs-plain" onclick="copyResumeText()" title="Copy the whole résumé as plain text (for ATS boxes)">Copy as text</button>
+    <span class="rs-meter" id="rsMeter"></span>`;
+  rsMeter();
+}
 function paintResume(){
   collectProfile();
   const inner=(state.resumeEdited&&state.resumeDoc)?state.resumeDoc:resumeInner();
-  $("resumeOut").innerHTML=resumeBanner()+`<div class="resume" id="resumeDoc">${inner}</div>`+RESUME_TOOLBAR;
+  $("resumeOut").innerHTML=resumeBanner()+`<div class="rs-bar no-print" id="rsBar"></div><div class="rs-view" id="rsView"><div class="resume" id="resumeDoc">${inner}</div></div>`+RESUME_TOOLBAR;
+  RS_HIST.stack=[inner];RS_HIST.i=0;
+  applyResumeStyle();if(rstyle().fit)fitOnePage();rsAfterLayout();renderDesignBar();
+  if(!window._rsRO&&window.ResizeObserver){window._rsRO=new ResizeObserver(()=>rsScale());}
+  if(window._rsRO){try{window._rsRO.disconnect();window._rsRO.observe($("rsView"));}catch(e){}}
   markDone("resume",true);
 }
 function buildResume(){ state.resumeEdited=false; state.resumeDoc=null; paintResume(); }
-function saveResumeDoc(){ const d=$("resumeDoc"); if(!d)return; state.resumeDoc=d.innerHTML; state.resumeEdited=true; try{localStorage.setItem("tailor_ollama",JSON.stringify({state,jd:{...jd},chosenSummary}));}catch(e){} }
+function saveResumeDoc(){ const d=$("resumeDoc"); if(!d)return; state.resumeDoc=d.innerHTML; state.resumeEdited=true; try{localStorage.setItem("tailor_ollama",JSON.stringify({state,jd:{...jd},chosenSummary}));}catch(e){}
+  clearTimeout(window._rsT);window._rsT=setTimeout(()=>{rsPush(d.innerHTML);if(rstyle().fit)fitOnePage();rsAfterLayout();},350); }
+window.rsSet=rsSet;window.rsToggleFit=rsToggleFit;window.fitOnePage=fitOnePage;window.undoResume=undoResume;window.redoResume=redoResume;window.rsToggleSec=rsToggleSec;window.copyResumeText=copyResumeText;
 function ensureSection(kind){
   const doc=$("resumeDoc");let sec=doc.querySelector(`.r-sec[data-sec="${kind}"]`);
   if(sec)return sec;

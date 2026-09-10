@@ -1139,8 +1139,8 @@ def test_job_board_segregates_by_domain():
     check("board sends category / sub / page to the API",
           'p.set("category"' in html and 'p.set("sub"' in html and 'p.set("page"' in html)
     check("board opens on the user's own domain first", "r.facets.my_domain" in html)
-    check("rows open a detail drawer that lazily loads the full description",
-          'id="drawer"' in html and '/api/job?id=' in html)
+    check("clicking a row opens the posting in the workbench (description fetched first)",
+          'onclick="goJob(' in html and '/api/job?id=' in html and 'id="drawer"' not in html)
     srv = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "serve.py")).read()
     check("server serves a single posting's description at /api/job", 'path == "/api/job"' in srv and "def job_detail" in srv)
     check("no more 5-job cap on the feed", "slice(0,5)" not in html.split("function renderCards")[1].split("const STABS")[0])
@@ -1217,6 +1217,43 @@ def test_public_board_private_everything_else():
           and idx.index('href="theme.css"') > idx.index("</style>") and dash.index('href="theme.css"') > dash.index("</style>"))
     srv = open(os.path.join(root, "serve.py")).read()
     check("stylesheets are never cached (same reason as the app shell)", '".css"' in srv.split("def end_headers")[1].split("def _json")[0])
+    # ── credits: 25 to start, tailor 5 / analyze 3, spent server-side, unlimited in local mode ──
+    check("credit prices are what the product says", serve.CREDIT_COST == {"tailor": 5, "analyze": 3} and serve.CREDITS_START == 25)
+    check("single-operator mode is unlimited", serve.credits_get("local").get("unlimited") is True
+          and serve.credits_spend("local", {"action": "tailor"})[1].get("ok") is True)
+    class _Stub:
+        def __init__(self): self.rows = {}
+        def select(self, table, params, **kw):
+            uid = params["user_id"].split("eq.", 1)[1]; r = self.rows.get(uid); return [dict(r)] if r else []
+        def upsert(self, table, rows, on_conflict=None, update=True):
+            for r in rows: self.rows[r["user_id"]] = r
+            return rows
+        def is_configured(self): return True
+        def auth_enabled(self): return True
+    real = serve.sb; serve.sb = _Stub()
+    try:
+        first = serve.credits_get("u1")
+        check("a new account is granted 25 credits on first contact", first["balance"] == 25)
+        code, out = serve.credits_spend("u1", {"action": "tailor", "job_url": "https://x/1", "title": "T"})
+        check("tailoring costs 5 → 20 left", code == 200 and out["balance"] == 20, str(out))
+        code, out = serve.credits_spend("u1", {"action": "analyze"})
+        check("analysis costs 3 → 17 left", code == 200 and out["balance"] == 17, str(out))
+        for _ in range(3): serve.credits_spend("u1", {"action": "tailor"})
+        code, out = serve.credits_spend("u1", {"action": "tailor"})
+        check("an empty balance refuses with 402 no_credits and never goes negative",
+              code == 402 and out["status"] == "no_credits" and out["balance"] == 2, str(out))
+        check("unknown actions are refused", serve.credits_spend("u1", {"action": "print"})[0] == 400)
+        led = serve.sb.rows["u1"]["data"]["credits"]["ledger"]
+        check("every spend is in the ledger", len(led) == 5 and led[0]["job"] == "https://x/1")
+    finally:
+        serve.sb = real
+    check("credit endpoints are private (anonymous → 401)", not serve._is_public("/api/credits") and not serve._is_public("/api/credits/spend"))
+    check("workbench opens a posting as a page (free read + paid actions), textarea only on request",
+          'id="jobView"' in idx and "function renderJobView" in idx and "function parseJDFree" in idx
+          and "onclick=\"runPaid('tailor')\"" in idx and "onclick=\"runPaid('analyze')\"" in idx and "function showManualJD" in idx)
+    check("paid actions ask for sign-in, need a résumé, and spend before running",
+          "if(!canUse())return requireAuth(()=>runPaid(action)" in idx and "if(!hasProfileData())" in idx.split("async function runPaid")[1].split("async function analyzeOnly")[0]
+          and "if(!(await spendCredits(action)))return;" in idx)
     check("visitors get newest-first search, no résumé ranking (they have no résumé)",
           'oninput="searchSoon()"' in dash and 'if(anon&&$("fSort"))$("fSort").value="new";' in dash and 'const hits=anon?[]' in dash)
 

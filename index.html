@@ -576,6 +576,23 @@ code{background:var(--card-3);color:#2f6a4a}
 .card{box-shadow:0 1px 2px rgba(26,36,32,.04)}
 .btn:focus-visible,.in:focus-visible{outline:2px solid var(--primary-tint,#2f6a4a);outline-offset:2px}
 .pro{font:600 9px "JetBrains Mono",ui-monospace,monospace;letter-spacing:.08em;padding:1px 5px;border-radius:4px;background:var(--marker,#f2c84b);color:#1a2420;vertical-align:middle;margin-left:6px}
+/* ── job view (a posting opened from the board) ── */
+.jv{padding:0;overflow:hidden}
+.jv-head{display:flex;gap:16px;align-items:flex-start;padding:22px 24px 16px;border-bottom:1px solid var(--line)}
+.jv-title{font-size:22px;line-height:1.25;margin:0 0 8px}
+.jv-meta{display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:13px;color:var(--ink-soft)}
+.jv-meta .ava{width:20px;height:20px;border-radius:6px;background:var(--indigo);color:#fff;display:grid;place-items:center;font:700 10px "Geist","Inter",sans-serif}
+.jv-meta .sep{opacity:.5}
+.jv-headacts{margin-left:auto;display:flex;gap:6px;flex-shrink:0}
+.jv-kv{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px 20px;padding:16px 24px;border-bottom:1px solid var(--line)}
+.jv-kv div span{display:block;font-size:12px;color:var(--ink-faint);margin-bottom:2px}
+.jv-kv div b{font-weight:600;font-size:14px}
+.jv-read{padding:16px 24px;border-bottom:1px solid var(--line)}
+.jv-desc{padding:16px 24px 20px}
+.jv-text{white-space:pre-wrap;font-size:14px;line-height:1.65;color:var(--ink-soft);margin-top:10px;max-height:60vh;overflow:auto}
+.jv-actions{position:sticky;bottom:0;display:flex;gap:8px;align-items:center;padding:12px 24px;border-top:1px solid var(--line);background:var(--card-2)}
+.jv-credits{margin-right:auto;font-size:13px;color:var(--ink-soft)}
+.cr-cost{font:500 11px "Geist Mono","JetBrains Mono",monospace;opacity:.7}
 </style>
 <script src="filters.js"></script>
 <link rel="stylesheet" href="theme.css">
@@ -619,6 +636,7 @@ code{background:var(--card-3);color:#2f6a4a}
         <button class="btn" onclick="revealJDForm()"><svg class="ic" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Add a job manually</button>
       </div>
     </div>
+    <div id="jobView" style="display:none"></div>
     <div id="jdEntry" style="display:none">
       <div id="jdReadoutBar" class="readout-bar" style="display:none"></div>
       <div class="card">
@@ -631,9 +649,10 @@ code{background:var(--card-3);color:#2f6a4a}
         <div id="jdCoBlurb"></div>
         <textarea class="in jd" id="jdText" placeholder="Paste the full job description here as plain text…"></textarea>
         <div class="row-btns">
-          <button class="btn primary" id="autoBtn" onclick="autoTailor()"><svg class="ic" viewBox="0 0 24 24"><polygon points="13 2 4 14 11 14 10 22 20 10 13 10 13 2"/></svg> Auto-tailor my resume</button>
-          <button class="btn" id="analyzeBtn" onclick="analyzeJD()">Just analyze</button>
+          <button class="btn primary" id="autoBtn" onclick="runPaid('tailor')"><svg class="ic" viewBox="0 0 24 24"><polygon points="13 2 4 14 11 14 10 22 20 10 13 10 13 2"/></svg> Auto-tailor my resume</button>
+          <button class="btn" id="analyzeBtn" onclick="runPaid('analyze')">Just analyze <span class="cr-cost" data-a="analyze"></span></button>
           <button class="btn ghost" onclick="document.getElementById('jdText').value='';jd.raw='';renderJDPanel();">Clear</button>
+          <button class="btn ghost" id="backToJob" style="display:none" onclick="backToJobView()">← Back to the posting</button>
         </div>
         <div class="row-btns" style="margin-top:10px;align-items:center;gap:14px;flex-wrap:wrap">
           <label class="muted" style="display:flex;gap:6px;align-items:center">Projects to include:
@@ -1199,7 +1218,111 @@ function loadJob(i){
 }
 function jobLabel(j,i){const r=(j&&j.jd&&j.jd.role)?j.jd.role:"";const c=(j&&j.jd&&j.jd.company)?j.jd.company:"";return r?(r+(c?" · "+c:"")).slice(0,38):("Job "+(i+1));}
 function currentPanel(){const el=document.querySelector(".panel.show");return el?el.id.replace(/^p-/,""):"jd";}
-function renderJDPanel(){const has=!!(jd&&jd.raw&&jd.raw.trim());if($("jdEntry"))$("jdEntry").style.display=has?"":"none";if($("jdEmpty"))$("jdEmpty").style.display=has?"none":"";}
+function renderJDPanel(){
+  const has=!!(jd&&jd.raw&&jd.raw.trim());
+  const j=(state.jobs||[])[state.activeJob];const jobMode=!!(has&&j&&j.meta&&!j.manualJD);
+  if($("jobView")){$("jobView").style.display=jobMode?"":"none";if(jobMode)renderJobView(j);}
+  if($("jdEntry"))$("jdEntry").style.display=(has&&!jobMode)?"":"none";
+  if($("jdEmpty"))$("jdEmpty").style.display=has?"none":"";
+  if($("backToJob"))$("backToJob").style.display=(j&&j.meta&&j.manualJD)?"":"none";}
+/* ── Job view: the posting as a page (what the board's drawer showed), plus a FREE read of the
+   role from the rule-based parser, plus the two paid actions. No textarea unless asked. ── */
+function parseJDFree(){
+  const raw=(jd.raw||"").trim();if(!raw)return;const low=norm(raw);
+  try{
+    jd.role=jd.role||detectRole(raw);const sen=detectSeniority(low);jd.seniority=sen.level;jd.years=sen.years;
+    jd.sponsorship=detectSponsorship(low);jd.skills=extractSkillsRB(raw).filter(s=>!isNegatedSkill(raw,s.skill));
+    jd.segment=detectSegmentRB(jd.skills);
+    jd.resp=extractRespRB(raw).map(text=>({text})).filter(r=>r.text.trim().length>28&&!/^(responsibilities|requirements|qualifications|about (us|the role))\b/i.test(r.text.trim()));   // headers aren't duties
+  }catch(e){console.warn("free parse",e);}
+}
+function jvAgo(d){if(!d)return"";const t=Date.parse(String(d).includes("T")?d:d+"T00:00:00Z");if(isNaN(t))return"";
+  const m=Math.floor((Date.now()-t)/60000);if(m<60)return m<=1?"just now":m+"m ago";const h=Math.floor(m/60);if(h<24)return h+"h ago";const dd=Math.floor(h/24);return dd<30?dd+"d ago":Math.floor(dd/30)+"mo ago";}
+function renderJobView(j){
+  const m=j.meta||{};const host=$("jobView");if(!host)return;
+  const spn={yes:['good','Sponsors visas'],no:['gap','No sponsorship'],mentioned:['warn','Mentioned — check wording'],unknown:['neutral','Not stated']}[jd.sponsorship||"unknown"];
+  const posted=m.posted_at?jvAgo(m.posted_at):"";
+  const route=m.applyability==="auto"?"⚡ Agent can fill this form":m.applyability==="assist"?"Agent fills, you finish":"Opens the company's form";
+  const skills=(jd.skills||[]).slice(0,14);const resp=(jd.resp||[]).slice(0,6);
+  const cost=k=>CREDITS.unlimited?"":` <span class="cr-cost">${(CREDITS.costs||{})[k]||""} cr</span>`;
+  host.innerHTML=`
+  <div class="card jv">
+    <div class="jv-head">
+      <div style="min-width:0">
+        <h2 class="jv-title">${esc(m.title||jd.role||"Job")}</h2>
+        <div class="jv-meta"><span class="ava">${esc((m.company||"?").slice(0,1).toUpperCase())}</span><span>${esc(m.company||"")}</span>
+          ${m.location?`<span class="sep">·</span><span>${esc(m.location)}</span>`:""}${posted?`<span class="sep">·</span><span>${posted}</span>`:""}
+          ${m.category?`<span class="pill neutral">${esc(m.category)}${m.subcategory&&m.subcategory!=="Other"?" › "+esc(m.subcategory):""}</span>`:""}</div>
+      </div>
+      <div class="jv-headacts">${m.url?`<a class="btn sm" href="${esc(m.url)}" target="_blank" rel="noopener">Open posting ↗</a>`:""}
+        <button class="btn sm ghost" onclick="showManualJD()" title="Paste or edit the description yourself">Edit / paste a JD</button></div>
+    </div>
+    <div class="jv-kv">
+      <div><span>Posted</span><b>${posted||"—"}</b></div>
+      <div><span>Apply route</span><b>${route}</b></div>
+      <div><span>Work setup</span><b>${m.remote?"Remote":"On-site / hybrid"}${m.employment_type?" · "+esc(m.employment_type):""}</b></div>
+      <div><span>Sponsorship</span><b><span class="pill ${spn[0]}">${spn[1]}</span></b></div>
+    </div>
+    <div class="jv-read">
+      <div class="eyebrow">What we read from the posting <span class="muted" style="text-transform:none;letter-spacing:0;font-weight:500">· free, no résumé needed</span></div>
+      <div class="readout-bar" style="margin:10px 0 12px">
+        <div class="rchip"><span class="rk">Role</span><span class="rv">${esc(jd.role||m.title||"—")}</span></div>
+        <div class="rchip"><span class="rk">Seniority</span><span class="rv">${esc(jd.seniority||"—")}${jd.years!=null?` · ${jd.years}+ yrs`:""}</span></div>
+        <div class="rchip"><span class="rk">Focus</span><span class="rv">${jd.segment?esc(SEGMENT_LABEL[jd.segment]):"—"}</span></div>
+      </div>
+      ${resp.length?`<div class="eyebrow" style="margin-top:6px">What this role actually does</div>${resp.map(r=>`<div class="resp"><div class="rtext">${esc(r.text)}</div></div>`).join("")}`:""}
+      <div class="eyebrow" style="margin-top:12px">Concrete skills / tools named</div>
+      <div class="chips" style="margin-top:8px">${skills.length?skills.map(s=>`<span class="chip ${s.req?'hit':''}">${esc(prettySkill(s.skill))}</span>`).join(""):'<span class="muted">none named</span>'}</div>
+    </div>
+    <div class="jv-desc"><div class="eyebrow">Description</div><div class="jv-text">${esc(m.desc||jd.raw||"")}</div></div>
+    <div class="jv-actions">
+      <span class="jv-credits" id="jvCredits"></span>
+      <button class="btn" onclick="runPaid('analyze')" title="How well your résumé fits this role — matched skills, gaps, coverage">Just analyze${cost("analyze")}</button>
+      <button class="btn primary" onclick="runPaid('tailor')" title="Rewrite your résumé for this role">${ic("bolt")} Auto-tailor my résumé${cost("tailor")}</button>
+    </div>
+  </div>`;
+  renderCredits();
+}
+function showManualJD(){const j=(state.jobs||[])[state.activeJob];if(j){j.manualJD=true;persist();}renderJDPanel();revealJDForm();try{renderJD();}catch(e){}}
+function backToJobView(){const j=(state.jobs||[])[state.activeJob];if(j){j.manualJD=false;persist();}renderJDPanel();}
+/* ── Credits: 25 to start; Tailor 5 · Analyze 3. Spent server-side, shown here. ── */
+const CREDITS={balance:null,costs:{tailor:5,analyze:3},unlimited:false,start:25,loaded:false};
+async function loadCredits(){
+  if(AUTH.cfg&&AUTH.cfg.auth&&!signedIn()){CREDITS.balance=null;CREDITS.loaded=true;renderCredits();return;}
+  let r=null;try{r=await fetch("/api/credits",{headers:authHeaders()}).then(x=>x.json());}catch(e){}
+  if(r&&r.ok){CREDITS.balance=r.balance;CREDITS.unlimited=!!r.unlimited;if(r.costs)CREDITS.costs=r.costs;if(r.start)CREDITS.start=r.start;}
+  CREDITS.loaded=true;renderCredits();
+}
+function renderCredits(){
+  document.querySelectorAll(".cr-cost[data-a]").forEach(el=>{el.textContent=CREDITS.unlimited?"":`· ${CREDITS.costs[el.dataset.a]||""} cr`;});
+  const jv=$("jvCredits");if(jv)jv.innerHTML=CREDITS.unlimited?"":CREDITS.balance==null?`<span class="muted">Sign in — new accounts get <b>${CREDITS.start}</b> credits</span>`:`<b>${CREDITS.balance}</b> credits left`;
+  const pill=$("creditPill");if(pill){pill.style.display=(CREDITS.balance==null||CREDITS.unlimited)?"none":"";pill.innerHTML=`<span class="dot" style="background:var(--marker)"></span>${CREDITS.balance} credits`;}
+}
+async function spendCredits(action){
+  let r=null;const j=(state.jobs||[])[state.activeJob]||{};const m=j.meta||{};
+  try{r=await fetch("/api/credits/spend",{method:"POST",headers:{"Content-Type":"application/json",...authHeaders()},body:JSON.stringify({action,job_url:m.url||j.applyUrl||"",title:m.title||jd.role||""})}).then(x=>x.json());}catch(e){}
+  if(!r){toast("Couldn't reach the server");return false;}
+  if(!r.ok){if(r.status==="no_credits"){CREDITS.balance=r.balance;renderCredits();toast(`Out of credits — ${action==="tailor"?"tailoring":"analysis"} needs ${r.cost}, you have ${r.balance}. Pro adds more.`);}
+    else if(r.status==="auth_required"){requireAuth(()=>runPaid(action),"Sign in to continue");}
+    else toast(r.detail||"Couldn't spend credits");return false;}
+  if(!r.unlimited){CREDITS.balance=r.balance;renderCredits();toast(`−${r.cost} credits · ${r.balance} left`);}
+  return true;
+}
+async function runPaid(action){
+  const cost=CREDITS.costs[action]||0;
+  if(!canUse())return requireAuth(()=>runPaid(action),`Sign in to ${action==="tailor"?"tailor your résumé":"analyze this role"} — new accounts get ${CREDITS.start} credits (${action==="tailor"?"tailoring":"analysis"} costs ${cost})`);
+  if(!(jd.raw||"").trim()&&!($("jdText")&&$("jdText").value.trim())){toast("Load a job or paste a description first");return;}
+  if(!hasProfileData()){toast("Add your résumé first — there's nothing to compare against yet");setTimeout(startOnboarding,300);return;}
+  if(!(await spendCredits(action)))return;
+  if(action==="tailor")return autoTailor();
+  return analyzeOnly();
+}
+async function analyzeOnly(){
+  await analyzeJD();collectProfile();
+  try{fit=await computeFit();fit.key=jdKey();state.fit=fit;persist();}catch(e){console.warn("fit",e);}
+  go("tailor");
+}
+window.runPaid=runPaid;window.showManualJD=showManualJD;window.backToJobView=backToJobView;
 function revealJDForm(){if($("jdEmpty"))$("jdEmpty").style.display="none";if($("jdEntry"))$("jdEntry").style.display="";const t=$("jdText");if(t)t.focus();}
 function refreshAfterJobSwitch(){
   if($("jdText"))$("jdText").value=jd.raw||"";
@@ -4056,6 +4179,7 @@ async function authInit(){
   else if(AUTH.next&&signedIn()){const n=AUTH.next;AUTH.next=null;try{history.replaceState(null,"",location.pathname);}catch(e){}if(safeNext(n))location.href=n;}
   else if(signedIn())pullProfile();   // already signed in → keep the answer bank synced on load
   if(canUse())try{refreshRqBadge();}catch(e){}   // review-queue count in the nav (signed in only)
+  loadCredits();
 }
 function showAuthGate(why){AUTH.why=why||"";const g=$("authGate");if(g){g.style.display="flex";renderGate("email");}}
 function hideAuthGate(){const g=$("authGate");if(g)g.style.display="none";}
@@ -4063,6 +4187,7 @@ function hideAuthGate(){const g=$("authGate");if(g)g.style.display="none";}
 function requireAuth(fn,why){if(canUse()){return fn();}AUTH.pending=fn;showAuthGate(why||"Sign in to continue");}
 function safeNext(n){return /^(dashboard|index)\.html(\?[\w=&%.-]*)?(#[\w-]*)?$/.test(n||"");}
 function afterAuthOk(){
+  loadCredits();
   const fn=AUTH.pending;AUTH.pending=null;
   if(AUTH.next&&safeNext(AUTH.next)){const n=AUTH.next;AUTH.next=null;setTimeout(()=>location.href=n,250);return;}
   if(typeof fn==="function")setTimeout(()=>{try{fn();}catch(e){}},250);
@@ -4121,7 +4246,7 @@ function updateAuthChip(){
   document.querySelectorAll(".auth-only").forEach(el=>{el.style.display=canUse()?"":"none";});
   if(window.renderNav)try{renderNav(document.querySelector("nav.pnav button.on")?document.querySelector("nav.pnav button.on").dataset.nav:"wb");}catch(e){}
   const c=$("authChip");if(!c)return;
-  if(signedIn()){const em=(AUTH.sess.user&&AUTH.sess.user.email)||"account";c.innerHTML=`<span class="mstat ready" title="${esc(em)}"><span class="dot"></span>${esc(em.split("@")[0])}</span> <button class="btn sm ghost" onclick="signOut()">Sign out</button>`;}
+  if(signedIn()){const em=(AUTH.sess.user&&AUTH.sess.user.email)||"account";c.innerHTML=`<span class="mstat" id="creditPill" style="display:none" title="Tailor 5 · Analyze 3"></span> <span class="mstat ready" title="${esc(em)}"><span class="dot"></span>${esc(em.split("@")[0])}</span> <button class="btn sm ghost" onclick="signOut()">Sign out</button>`;renderCredits();}
   else if(AUTH.cfg&&AUTH.cfg.auth){c.innerHTML=`<button class="btn sm accent" onclick="showAuthGate()">Sign in</button>`;}
   else c.innerHTML="";
 }
@@ -4225,14 +4350,17 @@ function intakeHandoff(){
   try{localStorage.removeItem("tailor_handoff");}catch(e){}
   ensureJobs();
   const ex=state.jobs.findIndex(j=>j.applyUrl===h.url);
-  if(ex>=0){snapshotJob();loadJob(ex);go("jd");refreshAfterJobSwitch();persist();toast("Opened “"+(h.title||"job").slice(0,40)+"”");return true;}
+  if(ex>=0){snapshotJob();loadJob(ex);if(!jd.skills||!jd.skills.length)parseJDFree();go("jd");refreshAfterJobSwitch();persist();toast("Opened “"+(h.title||"job").slice(0,40)+"”");return true;}
   if(state.jobs.length>=MAX_JOBS){toast("Job limit reached — delete a job first, then reopen from the dashboard");go("jd");return true;}
   snapshotJob();
   const j=newJob();
   j.jd={...blankJD(),raw:((h.title||"")+(h.company?(" at "+h.company):"")+"\n"+(h.location?("Location: "+h.location+"\n"):"")+"\n"+(h.desc||"")),role:(h.title||"").slice(0,70),company:h.company||""};
   j.applyUrl=h.url;
-  state.jobs.push(j);loadJob(state.jobs.length-1);go("jd");refreshAfterJobSwitch();persist();
-  toast("Loaded “"+(h.title||"job").slice(0,40)+"” — hit Auto-tailor");
+  j.meta={url:h.url,id:h.id||null,title:h.title||"",company:h.company||"",location:h.location||"",desc:h.desc||"",posted_at:h.posted_at||"",
+    category:h.category||"",subcategory:h.subcategory||"",remote:!!h.remote,sponsorship:h.sponsorship||"",applyability:h.applyability||"",employment_type:h.employment_type||""};
+  j.manualJD=false;
+  state.jobs.push(j);loadJob(state.jobs.length-1);parseJDFree();go("jd");refreshAfterJobSwitch();persist();
+  toast("Loaded “"+(h.title||"job").slice(0,40)+"”");
   return true;
 }
 window.intakeHandoff=intakeHandoff;

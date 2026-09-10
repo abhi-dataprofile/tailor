@@ -976,6 +976,53 @@ def _spread(rows, key="company_slug", max_run=2):
     out.extend(held)
     return out
 
+# ── Credits ───────────────────────────────────────────────────────────────────
+# Every account starts with CREDITS_START. Tailoring a résumé costs 5, a fit analysis 3.
+# Single-operator mode (no auth → user 'local') is unlimited. Spending is server-side and
+# recorded in profiles.data.credits.ledger so the balance can't be edited from the browser.
+CREDITS_START = int(os.environ.get("CREDITS_START", "25"))
+CREDIT_COST = {"tailor": 5, "analyze": 3}
+
+def _credits_load(user):
+    prof = sb.select("profiles", {"user_id": f"eq.{user}", "select": "data", "limit": "1"}) or []
+    data = (prof[0].get("data") if prof else {}) or {}
+    c = data.get("credits")
+    if not isinstance(c, dict) or "balance" not in c:
+        c = {"balance": CREDITS_START, "ledger": [], "granted_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+        data["credits"] = c
+        sb.upsert("profiles", [{"user_id": user, "data": data,
+                  "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}], on_conflict="user_id", update=True)
+    return data, c
+
+def credits_get(user):
+    if user == "local":
+        return {"ok": True, "balance": None, "unlimited": True, "costs": CREDIT_COST, "start": CREDITS_START}
+    _, c = _credits_load(user)
+    return {"ok": True, "balance": int(c.get("balance", 0)), "costs": CREDIT_COST, "start": CREDITS_START,
+            "spent": sum(int(e.get("cost", 0)) for e in (c.get("ledger") or []))}
+
+def credits_spend(user, body):
+    action = str((body or {}).get("action") or "")
+    cost = CREDIT_COST.get(action)
+    if cost is None:
+        return 400, {"ok": False, "status": "bad_action", "detail": f"unknown action {action!r}"}
+    if user == "local":
+        return 200, {"ok": True, "balance": None, "unlimited": True, "cost": cost, "action": action}
+    data, c = _credits_load(user)
+    bal = int(c.get("balance", 0))
+    if bal < cost:
+        return 402, {"ok": False, "status": "no_credits", "balance": bal, "cost": cost, "action": action,
+                     "detail": f"{action} needs {cost} credits — you have {bal}."}
+    c["balance"] = bal - cost
+    ledger = list(c.get("ledger") or [])
+    ledger.append({"action": action, "cost": cost, "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                   "job": str((body or {}).get("job_url") or "")[:300], "title": str((body or {}).get("title") or "")[:120]})
+    c["ledger"] = ledger[-200:]
+    data["credits"] = c
+    sb.upsert("profiles", [{"user_id": user, "data": data,
+              "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}], on_conflict="user_id", update=True)
+    return 200, {"ok": True, "balance": c["balance"], "cost": cost, "action": action}
+
 def job_detail(qs):
     """Full single job (with description) — fetched on demand when the user adds/applies."""
     try: jid = int((qs.get("id") or ["0"])[0])
@@ -1295,6 +1342,13 @@ class H(SimpleHTTPRequestHandler):
                 return self._json(200, {"ok": True, "otp": rows[0]["otp"] if rows else None})
             except Exception as e:
                 return self._json(200, {"ok": False, "detail": str(e)[:150]})
+        if urllib.parse.urlparse(self.path).path == "/api/credits":
+            if not (sb and sb.is_configured()):
+                return self._json(200, {"ok": True, "balance": None, "unlimited": True, "costs": CREDIT_COST})
+            try:
+                return self._json(200, credits_get(_req_user(self)))
+            except Exception as e:
+                return self._json(200, {"ok": False, "status": "error", "detail": str(e)[:160]})
         if self.path.startswith("/api/config"):
             return self._json(200, {"ok": True,
                                     "auth": bool(sb and sb.auth_enabled()),
@@ -1437,6 +1491,17 @@ class H(SimpleHTTPRequestHandler):
                 return self._json(200, {"ok": True})
             except Exception as e:
                 return self._json(200, {"ok": False, "status": "error", "detail": str(e)[:200]})
+        if self.path == "/api/credits/spend":
+            n = int(self.headers.get("Content-Length", 0))
+            try: body = json.loads(self.rfile.read(n) or b"{}")
+            except Exception: body = {}
+            if not (sb and sb.is_configured()):
+                return self._json(200, {"ok": True, "balance": None, "unlimited": True, "cost": CREDIT_COST.get(body.get("action"), 0)})
+            try:
+                code, out = credits_spend(_req_user(self), body)
+                return self._json(code, out)
+            except Exception as e:
+                return self._json(200, {"ok": False, "status": "error", "detail": str(e)[:160]})
         if self.path == "/api/answers":
             # Save answers to the questions the agent couldn't complete. MERGES into
             # profiles.data.standing (never replaces the profile) so the answers are reused

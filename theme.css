@@ -1,0 +1,144 @@
+/* ── Tailor · Vercel-style dark theme ─────────────────────────────────────────
+   Loaded LAST on every page. One palette (near-black surfaces, hairline borders,
+   #ededed ink, white primary buttons, a single blue accent), one type family
+   (Geist / Geist Mono). The résumé sheet and printed output stay light. */
+:root{color-scheme:dark;
+  /* surfaces */
+  --bg:#000;--paper:#000;--card:#0a0a0a;--card-2:#111;--card-3:#1a1a1a;
+  --line:#262626;--line-soft:#1c1c1c;--hover:rgba(255,255,255,.06);
+  /* ink */
+  --ink:#ededed;--ink-soft:#a1a1a1;--ink-faint:#6b6b6b;
+  /* one accent (links, focus, active filters) + white primary */
+  --blue:#0072f5;--blue-soft:rgba(0,114,245,.16);--blue-ink:#52a8ff;
+  --primary:#ededed;--primary-deep:#fff;--primary-soft:rgba(255,255,255,.08);--primary-tint:#52a8ff;
+  --indigo:#0072f5;--indigo-deep:#0060d0;--accent:#0072f5;
+  --marker:#ffe15a;
+  /* semantic */
+  --exc:#3ecf8e;--exc-bg:rgba(62,207,142,.13);--exc-ring:#3ecf8e;
+  --str:#52a8ff;--str-bg:rgba(82,168,255,.13);--str-ring:#52a8ff;
+  --good:#f5a623;--good-bg:rgba(245,166,35,.13);--good-ring:#f5a623;
+  --fair:#ff6166;--fair-bg:rgba(255,97,102,.13);--fair-ring:#ff6166;
+  --gap:#ff6166;--gap-bg:rgba(255,97,102,.13);--warn:#f5a623;--warn-bg:rgba(245,166,35,.13);
+  --shadow:0 0 0 1px rgba(255,255,255,.04),0 16px 40px -20px rgba(0,0,0,.9);
+}
+html{background:#000}
+body{background:#000;color:var(--ink);font-family:"Geist","Inter",system-ui,-apple-system,sans-serif}
+button,input,select,textarea,.btn,.nav button,.pnav button,.jact,.tf-chip,.act-tab,.step,.tog{font-family:"Geist","Inter",system-ui,sans-serif}
+h1,h2,h3,.mark,.brand .mark,.auth-brand .mark,.act .co,.ag-tile .n,.ag-panel h3,.jc .title,.drawer .dh h3,.jli .jli-title,.jd-head h2,.ob-h1,.sechead h2,.section-head h2,.fd-empty b,.rl-you b
+  {font-family:"Geist","Inter",system-ui,sans-serif;font-weight:600;letter-spacing:-.02em}
+.stat,.kbd,.pro,.row .sc,.rail .n,.ag-le .t,.agr,.tbl th,.mono,.pv-eyebrow,.jd-sec h3,code,pre,.ring>b,.act-tab .n,.dtab .srcpill,.eyebrow,.rl-h
+  {font-family:"Geist Mono","JetBrains Mono",ui-monospace,monospace}
+::selection{background:rgba(0,114,245,.35);color:#fff}
+*{scrollbar-color:#333 transparent}
+::-webkit-scrollbar-thumb{background:#333;border:3px solid transparent;background-clip:content-box}
+a{color:var(--blue-ink)}
+svg.ic{stroke-width:1.6}
+
+/* ── chrome ─────────────────────────────────────────────────────────────── */
+.top,.topbar{background:rgba(0,0,0,.8);border-bottom:1px solid var(--line);backdrop-filter:saturate(180%) blur(12px)}
+.nav button,.pnav button,.pnav a{color:var(--ink-soft);border-radius:6px}
+.nav button:hover,.pnav button:hover,.pnav a:hover{color:var(--ink);background:var(--hover)}
+.nav button.on,.pnav button.on,.pnav a.on{background:var(--primary-soft);color:var(--ink)}
+.stat,.mstat{background:var(--card);border:1px solid var(--line);color:var(--ink-soft);border-radius:6px}
+.stat .dot{background:var(--exc)}
+.stat.asp.on{background:rgba(255,97,102,.12);border-color:rgba(255,97,102,.4);color:#ff6166}
+.brand .mark em,.mark em,.auth-brand .mark em{color:#111}
+
+/* ── controls: white primary, hairline secondary ────────────────────────── */
+.btn,.jact.tailor,.row .acts .jact,.ag-seg button,.act-tab,.tf-chip,.jobtabs-inner .jobtab,.disco-tog,.disco-preset button
+  {background:var(--card);color:var(--ink);border:1px solid var(--line);box-shadow:none}
+.btn:hover,.row .acts .jact:hover,.tf-chip:hover,.act-tab:hover{border-color:#444;background:var(--card-2);color:var(--ink)}
+.btn.accent,.btn.primary,.jact.apply,.row .acts .jact.apply,.act-tab.on,.ag-seg button.on,.rail .rl-d.on,.step.active,.jobtab.on,.jobtab.waopt.on,.toast
+  {background:#ededed;border-color:#ededed;color:#0a0a0a}
+.btn.accent:hover,.btn.primary:hover,.jact.apply:hover,.row .acts .jact.apply:hover{background:#fff;border-color:#fff;color:#000}
+.btn.ghost{background:transparent;border-color:transparent;color:var(--ink-soft)}
+.btn.ghost:hover{background:var(--hover);color:var(--ink)}
+.btn:disabled{opacity:.45}
+.jact.auto,.jact.premium,.row .acts .jact.premium{background:rgba(255,225,90,.06);border-color:rgba(255,225,90,.3);color:var(--ink)}
+.jact.done,.row .acts .jact.done{background:var(--exc-bg);border-color:transparent;color:var(--exc)}
+.step{background:var(--card);border-color:var(--line);color:var(--ink-soft)}
+.step .n{background:var(--card-3);color:var(--ink-soft)}
+.step.active .n{background:#0a0a0a;color:#ededed}
+.tf-chip.on{background:var(--blue);border-color:var(--blue);color:#fff}
+.tf-chip b{background:rgba(255,255,255,.22)}
+.tf-drop{background:var(--card);border-color:var(--line);box-shadow:0 12px 40px rgba(0,0,0,.7)}
+.tf-search{background:var(--card-2);color:var(--ink);border-color:var(--line)}
+.tf-opt{color:var(--ink)}.tf-opt:hover{background:var(--hover)}
+.tf-clear{color:var(--ink-faint)}.tf-clear:hover{color:var(--fair)}
+.in,input.in,textarea.in,select.in,.ag-fld input,.ag-fld select,.ag-fld textarea,.agp-body textarea,.qb-row input,.qb-row select,.qb-row textarea
+  {background:var(--card);color:var(--ink);border:1px solid var(--line)}
+.in::placeholder,input::placeholder,textarea::placeholder{color:var(--ink-faint)}
+.in:focus,input.in:focus,textarea.in:focus,select.in:focus{background:var(--card);border-color:#fff;box-shadow:0 0 0 1px #fff}
+.tog{background:var(--card);border-color:var(--line);color:var(--ink-soft)}
+.tog input{accent-color:#ededed}
+.kbd{background:var(--card-2);border-color:var(--line);color:var(--ink-faint)}
+.btn:focus-visible,.in:focus-visible,.jact:focus-visible,.rl-d:focus-visible,.rl-s:focus-visible{outline:2px solid #fff;outline-offset:2px}
+
+/* ── surfaces ───────────────────────────────────────────────────────────── */
+.panel,.card,.pcard,.ob-qcard,.act,.ag-tile,.ag-panel,.feed,.drawer,.rail .rl-you,.modal-card,.modal .box,#authBox,.jobs-detail,.jli,.jcard,.rq-card,.readout .cell,.resp,.exp-top,.rep,.disco-bar,.pv-identity,.agp-item
+  {background:var(--card);border-color:var(--line);box-shadow:none}
+.card{background:var(--card)}
+.feed .fd-h,.drawer .df,.agp-head{background:var(--card-2);border-color:var(--line)}
+.row{border-bottom-color:var(--line-soft)}
+.row:hover,.tbl tr:hover td,.jli:hover{background:var(--card-2)}
+.jli:hover{border-color:#444}
+.jli.active{border-color:var(--blue);background:var(--blue-soft)}
+.tbl th{color:var(--ink-faint);border-bottom:1px solid var(--line)}
+.tbl td{border-bottom-color:var(--line-soft)}
+.act-empty,.fd-empty{border-color:var(--line);color:var(--ink-soft)}
+.drawer{border-left-color:var(--line)}
+.drawer .dh{border-bottom-color:var(--line)}
+.drawer .dh .x{background:var(--card-2);border-color:var(--line);color:var(--ink-soft)}
+.drawer .db .desc{color:var(--ink-soft)}
+.drawer-bg{background:rgba(0,0,0,.6)}
+.rail .rl-d{color:var(--ink)}
+.rail .rl-d:hover,.rail .rl-s:hover{background:var(--hover);color:var(--ink)}
+.rail .rl-d.on .n{color:rgba(0,0,0,.6)}
+.rail .rl-s{color:var(--ink-soft)}
+.rail .rl-s.on{background:var(--blue-soft);color:var(--blue-ink)}
+.rail .rl-subs{border-left-color:var(--line)}
+.rail .rl-you span{color:var(--ink-soft)}
+.skel,.row.sk .b{background:linear-gradient(90deg,#111 25%,#1a1a1a 50%,#111 75%);background-size:200% 100%}
+.ag-log{border-color:var(--line)}.ag-le{border-bottom-color:var(--line-soft)}
+.ag-savebar{background:rgba(0,0,0,.85);border-top-color:var(--line)}
+.agr{background:var(--card-3);color:var(--ink-soft)}
+.shot-modal{background:rgba(0,0,0,.85)}
+code{background:var(--card-3);color:var(--blue-ink)}
+.trace code,.trace .tr-more pre,.dtab .srcpill{background:var(--card-3);color:var(--ink)}
+#authGate{background:radial-gradient(800px 500px at 50% -160px,rgba(0,114,245,.18),transparent 60%),rgba(0,0,0,.92)}
+.disco-hero{background:linear-gradient(135deg,rgba(0,114,245,.12),transparent 60%);border-color:rgba(0,114,245,.3)}
+.jd-tailored{background:var(--blue-soft);border-color:rgba(0,114,245,.35)}
+.editbar{background:var(--card);border-color:var(--line)}
+.readout-bar{background:var(--card-2)}
+
+/* ── pills, tags, badges ────────────────────────────────────────────────── */
+.row .pill,.qlabel{background:transparent;border-color:var(--line);color:var(--ink-soft)}
+.row .pill.cat{background:var(--card-3);border-color:transparent;color:var(--ink-soft)}
+.row .pill.auto{background:var(--exc-bg);border-color:transparent;color:var(--exc)}
+.row .pill.hit,.tag.hit{background:var(--exc-bg);color:var(--exc)}
+.row .pill.new{background:var(--marker);color:#111}
+.tag,.chips .chip,.pill.neutral{background:var(--card-3);color:var(--ink-soft)}
+.tag.rem{background:var(--str-bg);color:var(--str)}
+.tag.sp-no{background:var(--fair-bg);color:var(--fair)}
+.tag.sp-yes{background:var(--exc-bg);color:var(--exc)}
+.tag.ap-auto{background:var(--exc-bg);color:var(--exc)}
+.tag.ap-assist,.act .miss .tag,.drawer .tag.miss{background:var(--good-bg);color:var(--good)}
+.tag.ap-manual{background:var(--card-3);color:var(--ink-faint)}
+.bdg.good{background:var(--exc-bg);color:var(--exc)}
+.bdg.info{background:var(--str-bg);color:var(--str)}
+.bdg.warn{background:var(--good-bg);color:var(--good)}
+.bdg.bad{background:var(--fair-bg);color:var(--fair)}
+.bdg.neutral{background:var(--card-3);color:var(--ink-soft)}
+.pro{background:var(--marker);color:#111}
+.jc{background:var(--card);border-color:var(--line)}
+.jc.t-exc{background:var(--card)}.jc.t-str{background:var(--card)}.jc.t-good{background:var(--card)}.jc.t-fair{background:var(--card)}
+.jc .jfoot{border-top-color:var(--line-soft)}
+.ring>i::after{background:var(--card)}
+.ring>i{background:conic-gradient(var(--c) calc(var(--p)*3.6deg),rgba(255,255,255,.1) 0)}
+.ag-tile.good .n{color:var(--exc)}.ag-tile.info .n{color:var(--str)}.ag-tile.warn .n{color:var(--good)}.ag-tile.bad .n{color:var(--fair)}
+.jtag.rem{color:var(--str)}
+.live-tog{border-color:var(--line)!important}
+
+/* ── the résumé is paper: stays light on screen and in print ────────────── */
+.resume{background:#fff;color:#111;box-shadow:0 0 0 1px rgba(255,255,255,.08),0 24px 70px -24px rgba(0,0,0,.9)}
+@media print{html,body{background:#fff;color:#000}}

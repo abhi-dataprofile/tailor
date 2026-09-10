@@ -1222,7 +1222,7 @@ class H(SimpleHTTPRequestHandler):
         # which has repeatedly looked like "the fix didn't work" when the fix was fine and
         # the browser was serving yesterday's file. Never cache the app shell.
         p = urllib.parse.urlparse(self.path).path
-        if p.endswith((".html", ".js", "/")) or p == "":
+        if p.endswith((".html", ".js", ".css", "/")) or p == "":
             self.send_header("Cache-Control", "no-store, must-revalidate")
             self.send_header("Pragma", "no-cache")
         SimpleHTTPRequestHandler.end_headers(self)

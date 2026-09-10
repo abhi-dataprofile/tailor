@@ -1210,6 +1210,13 @@ def test_public_board_private_everything_else():
     check("the feed never shows more than two rows in a row from one company (rows deferred, not dropped)",
           [r["company_slug"] for r in sp][:3] == ["a", "a", "b"] and len(sp) == 6 and sorted(r["n"] for r in sp) == list(range(6)))
     check("the board's Date chip filters by posting date", 'p.set("days",String(Math.round(mins/1440)))' in dash)
+    theme = open(os.path.join(root, "theme.css")).read()
+    check("one dark theme, loaded last on both pages (Vercel palette, Geist type, résumé stays paper)",
+          idx.count('href="theme.css"') == 1 and dash.count('href="theme.css"') == 1
+          and "color-scheme:dark" in theme and '"Geist"' in theme and ".resume{background:#fff" in theme
+          and idx.index('href="theme.css"') > idx.index("</style>") and dash.index('href="theme.css"') > dash.index("</style>"))
+    srv = open(os.path.join(root, "serve.py")).read()
+    check("stylesheets are never cached (same reason as the app shell)", '".css"' in srv.split("def end_headers")[1].split("def _json")[0])
     check("visitors get newest-first search, no résumé ranking (they have no résumé)",
           'oninput="searchSoon()"' in dash and 'if(anon&&$("fSort"))$("fSort").value="new";' in dash and 'const hits=anon?[]' in dash)
 

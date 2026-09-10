@@ -586,11 +586,11 @@ code{background:var(--card-3);color:#2f6a4a}
       <button class="mstat asp" id="autoSubmitPill" onclick="toggleAutoSubmit()" title="Click to switch between Fill-only (review each) and Auto-submit (send automatically)"><span class="dot"></span><span>Fill only</span></button>
       <span class="mstat" id="ollamaStat"><span class="dot"></span><span id="ollamaText">checking Ollama…</span></span>
       <button class="btn sm" onclick="toggleNotes()"><svg class="ic" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><polyline points="14 3 14 8 19 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="16.5" x2="15" y2="16.5"/></svg> Notes</button>
-      <button class="btn sm" onclick="openSystem()"><svg class="ic" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/><rect x="9.5" y="9.5" width="5" height="5" rx="1"/><line x1="9.5" y1="3.5" x2="9.5" y2="6"/><line x1="14.5" y1="3.5" x2="14.5" y2="6"/><line x1="9.5" y1="18" x2="9.5" y2="20.5"/><line x1="14.5" y1="18" x2="14.5" y2="20.5"/><line x1="3.5" y1="9.5" x2="6" y2="9.5"/><line x1="3.5" y1="14.5" x2="6" y2="14.5"/><line x1="18" y1="9.5" x2="20.5" y2="9.5"/><line x1="18" y1="14.5" x2="20.5" y2="14.5"/></svg> System</button>
+      <button class="btn sm auth-only" onclick="openSystem()"><svg class="ic" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/><rect x="9.5" y="9.5" width="5" height="5" rx="1"/><line x1="9.5" y1="3.5" x2="9.5" y2="6"/><line x1="14.5" y1="3.5" x2="14.5" y2="6"/><line x1="9.5" y1="18" x2="9.5" y2="20.5"/><line x1="14.5" y1="18" x2="14.5" y2="20.5"/><line x1="3.5" y1="9.5" x2="6" y2="9.5"/><line x1="3.5" y1="14.5" x2="6" y2="14.5"/><line x1="18" y1="9.5" x2="20.5" y2="9.5"/><line x1="18" y1="14.5" x2="20.5" y2="14.5"/></svg> System</button>
       <button class="btn sm" onclick="openSettings()"><svg class="ic" viewBox="0 0 24 24"><line x1="4" y1="8" x2="20" y2="8"/><line x1="4" y1="16" x2="20" y2="16"/><circle cx="9" cy="8" r="2.4"/><circle cx="15" cy="16" r="2.4"/></svg> Model</button>
-      <button class="btn sm" onclick="saveJSON()">Save</button>
-      <label class="btn sm" style="margin:0">Load<input type="file" accept="application/json" onchange="loadJSON(event)" hidden></label>
-      <button class="btn sm ghost" onclick="loadSample()">Sample</button>
+      <button class="btn sm auth-only" onclick="saveJSON()">Save</button>
+      <label class="btn sm auth-only" style="margin:0">Load<input type="file" accept="application/json" onchange="loadJSON(event)" hidden></label>
+      <button class="btn sm ghost auth-only" onclick="loadSample()">Sample</button>
       <span id="authChip" class="no-print" style="display:inline-flex;gap:6px;align-items:center"></span>
     </div>
   </div>
@@ -871,8 +871,8 @@ code{background:var(--card-3);color:#2f6a4a}
         <div><div class="eyebrow">Step 04 — the deliverable</div><h2>Your resume</h2></div>
         <div class="row-btns" style="margin:0">
           <button class="btn" onclick="buildResume()">Rebuild</button>
-          <button class="btn" onclick="window.print()">Print / Save as PDF</button>
-          <button class="btn accent" onclick="downloadResume()">Download HTML</button>
+          <button class="btn" onclick="tailorPrintResume()">Print / Save as PDF</button>
+          <button class="btn accent" onclick="tailorDownloadResume()">Download HTML</button>
         </div>
       </div>
       <p class="hint">Everything below is editable — click any line and type. Rebuild pulls your latest profile edits and the summary you chose on step 3.</p>
@@ -3953,6 +3953,12 @@ We are happy to sponsor work visas for the right candidate.`;
 /* ============ AUTH — passwordless email OTP (Supabase GoTrue) ============ */
 const AUTH={cfg:null,sess:null,email:""};
 function signedIn(){return !!(AUTH.sess&&AUTH.sess.access_token);}
+function canUse(){return !(AUTH.cfg&&AUTH.cfg.auth)||signedIn();}
+/* this is a module: the classic nav script (which runs FIRST, at parse time) reaches these via window */
+window.tailorCanUse=canUse;window.tailorRequireAuth=(fn,why)=>requireAuth(fn,why);window.signedIn=signedIn;
+window.tailorDismissGate=()=>{AUTH.pending=null;AUTH.next=null;hideAuthGate();};
+window.tailorDownloadResume=()=>requireAuth(()=>downloadResume(),"Sign in to download your résumé");
+window.tailorPrintResume=()=>requireAuth(()=>window.print(),"Sign in to download your résumé");
 function authHeaders(){return signedIn()?{"Authorization":"Bearer "+AUTH.sess.access_token}:{};}
 /* ---- Review queue (mirrors the dashboard): prepared applications to review + submit ---- */
 function openReviewQueue(){if(window.renderNav)renderNav("review");const m=$("rqModal");if(m){m.style.display="block";document.body.style.overflow="hidden";window.scrollTo(0,0);}loadReviewQueue();}
@@ -4015,9 +4021,10 @@ async function authFromHash(){
   AUTH.sess={access_token:at,refresh_token:rt,user:user,at:Date.now()};
   authSave();
   try{history.replaceState(null,"",location.pathname+location.search);}catch(e){}   // strip tokens from the URL
-  updateAuthChip();hideAuthGate();
+  updateAuthChip();hideAuthGate();if(window.renderNav)renderNav("wb");
   toast("Signed in as "+((user&&user.email)||"you"));
   if(typeof syncProfileToCloud==="function")try{syncProfileToCloud();}catch(e){}
+  afterAuthOk();
   return true;
 }
 async function afterSignIn(){
@@ -4036,18 +4043,31 @@ async function authInit(){
   try{const r=await fetch("/api/config");AUTH.cfg=await r.json();}catch(e){AUTH.cfg={auth:false};}
   const viaLink=await authFromHash();       // catch a magic-link redirect before deciding on the gate
   updateAuthChip();
-  if(AUTH.cfg&&AUTH.cfg.auth&&!signedIn())showAuthGate();
+  const q=new URLSearchParams(location.search);
+  if(q.get("next"))AUTH.next=q.get("next");
+  if(AUTH.cfg&&AUTH.cfg.auth&&!signedIn()){
+    if(q.get("login")==="1"){showAuthGate(AUTH.next?"Sign in to continue":"");try{history.replaceState(null,"",location.pathname);}catch(e){}}
+  }
   else if(viaLink)afterSignIn();
+  else if(AUTH.next&&signedIn()){const n=AUTH.next;AUTH.next=null;try{history.replaceState(null,"",location.pathname);}catch(e){}if(safeNext(n))location.href=n;}
   else if(signedIn())pullProfile();   // already signed in → keep the answer bank synced on load
-  try{refreshRqBadge();}catch(e){}   // show the review-queue count in the nav
+  if(canUse())try{refreshRqBadge();}catch(e){}   // review-queue count in the nav (signed in only)
 }
-function showAuthGate(){const g=$("authGate");if(g){g.style.display="flex";renderGate("email");}}
+function showAuthGate(why){AUTH.why=why||"";const g=$("authGate");if(g){g.style.display="flex";renderGate("email");}}
 function hideAuthGate(){const g=$("authGate");if(g)g.style.display="none";}
+/* Run `fn` now if allowed, else open the gate and run it right after sign-in. */
+function requireAuth(fn,why){if(canUse()){return fn();}AUTH.pending=fn;showAuthGate(why||"Sign in to continue");}
+function safeNext(n){return /^(dashboard|index)\.html(\?[\w=&%.-]*)?(#[\w-]*)?$/.test(n||"");}
+function afterAuthOk(){
+  const fn=AUTH.pending;AUTH.pending=null;
+  if(AUTH.next&&safeNext(AUTH.next)){const n=AUTH.next;AUTH.next=null;setTimeout(()=>location.href=n,250);return;}
+  if(typeof fn==="function")setTimeout(()=>{try{fn();}catch(e){}},250);
+}
 function renderGate(step,msg){
   const box=$("authBox");if(!box)return;
   const err=msg?`<div class="hint" style="margin-top:10px;color:var(--gap)">${esc(msg)}</div>`:"";
   if(step==="code"){
-    box.innerHTML=`<div class="auth-brand"><span class="mark">Tail<em>or</em></span></div>
+    box.innerHTML=`<div class="auth-brand" style="display:flex;align-items:center"><span class="mark">Tail<em>or</em></span><button class="btn sm ghost" style="margin-left:auto" onclick="tailorDismissGate()">✕</button></div>
       <h2>Check your email</h2>
       <p class="hint" style="margin:6px 0 16px">Enter the 6-digit code we sent to <strong>${esc(AUTH.email)}</strong>.</p>
       <input class="in" id="authCode" inputmode="numeric" maxlength="8" placeholder="••••••" style="text-align:center;letter-spacing:.35em;font-size:19px" onkeydown="if(event.key==='Enter')authVerify()">
@@ -4055,9 +4075,9 @@ function renderGate(step,msg){
       <div style="display:flex;justify-content:space-between;margin-top:12px"><button class="btn ghost sm" onclick="authResend()">Resend code</button><button class="btn ghost sm" onclick="renderGate('email')">Use another email</button></div>${err}`;
     setTimeout(()=>{const c=$("authCode");if(c)c.focus();},60);
   }else{
-    box.innerHTML=`<div class="auth-brand"><span class="mark">Tail<em>or</em></span></div>
-      <h2>Sign in or sign up</h2>
-      <p class="hint" style="margin:6px 0 16px">Enter your email — we'll send a one-time code. No password to remember.</p>
+    box.innerHTML=`<div class="auth-brand" style="display:flex;align-items:center"><span class="mark">Tail<em>or</em></span><button class="btn sm ghost" style="margin-left:auto" onclick="tailorDismissGate()" title="Keep browsing without signing in">✕</button></div>
+      <h2>${esc(AUTH.why||"Sign in or sign up")}</h2>
+      <p class="hint" style="margin:6px 0 16px">Enter your email — we'll send a one-time code. No password to remember.${AUTH.why?" The job board and workbench stay open without an account.":""}</p>
       <input class="in" id="authEmail" type="email" placeholder="you@email.com" value="${esc(AUTH.email)}" onkeydown="if(event.key==='Enter')authSend()">
       <button class="btn accent" style="width:100%;margin-top:12px;justify-content:center" onclick="authSend()">Send code</button>${err}
       <p class="hint" style="margin-top:16px;font-size:11.5px">Your profile and applications are stored privately under your account.</p>`;
@@ -4084,9 +4104,9 @@ async function authVerify(){
     if(!r.ok)throw new Error("bad");
     const j=await r.json();
     AUTH.sess={access_token:j.access_token,refresh_token:j.refresh_token,user:j.user,at:Date.now()};
-    authSave();hideAuthGate();updateAuthChip();
+    authSave();hideAuthGate();updateAuthChip();if(window.renderNav)renderNav("wb");
     toast("Signed in as "+((j.user&&j.user.email)||"you"));
-    syncProfileToCloud();afterSignIn();
+    syncProfileToCloud();afterSignIn();afterAuthOk();
   }catch(e){renderGate("code","That code didn't work — resend and try again");}
 }
 function authResend(){
@@ -4094,6 +4114,8 @@ function authResend(){
 }
 function signOut(){AUTH.sess=null;authSave();location.reload();}
 function updateAuthChip(){
+  document.querySelectorAll(".auth-only").forEach(el=>{el.style.display=canUse()?"":"none";});
+  if(window.renderNav)try{renderNav(document.querySelector("nav.pnav button.on")?document.querySelector("nav.pnav button.on").dataset.nav:"wb");}catch(e){}
   const c=$("authChip");if(!c)return;
   if(signedIn()){const em=(AUTH.sess.user&&AUTH.sess.user.email)||"account";c.innerHTML=`<span class="mstat ready" title="${esc(em)}"><span class="dot"></span>${esc(em.split("@")[0])}</span> <button class="btn sm ghost" onclick="signOut()">Sign out</button>`;}
   else if(AUTH.cfg&&AUTH.cfg.auth){c.innerHTML=`<button class="btn sm accent" onclick="showAuthGate()">Sign in</button>`;}
@@ -4219,28 +4241,34 @@ Object.assign(window,{analyzeJD,autoTailor,clearTailoring,fetchJDCompany,addExp,
    There were three hand-maintained copies (workbench, find-jobs, dashboard) and they
    drifted: find-jobs was missing Review queue and Agent, the dashboard was missing
    Review queue. Generating them from this list is the only way they stay identical. */
+/* Public: Find jobs + Workbench. Everything else is personal and asks you to sign in. */
 const NAV_ITEMS = [
-  {id:"dash",    label:"Dashboard"},
   {id:"find",    label:"Find jobs"},
   {id:"wb",      label:"Workbench"},
-  {id:"profile", label:"Profile"},
-  {id:"answers", label:"Answer bank"},
-  {id:"review",  label:"Review queue", badge:"rqNav"},
-  {id:"agent",   label:"Agent"},
-  {id:"net",     label:"Networking"},
+  {id:"apps",    label:"Applications", auth:true},
+  {id:"profile", label:"Profile", auth:true},
+  {id:"answers", label:"Answer bank", auth:true},
+  {id:"review",  label:"Review queue", badge:"rqNav", auth:true},
+  {id:"agent",   label:"Agent", auth:true},
+  {id:"net",     label:"Networking", auth:true},
 ];
 function renderNav(active){
   document.querySelectorAll("nav.pnav, nav.nav").forEach(nav=>{
     nav.innerHTML = NAV_ITEMS.map(it=>{
       const on = it.id===active ? ' class="on"' : "";
       const badge = it.badge ? `<span id="${it.badge}" class="rq-badge" style="display:none"></span>` : "";
-      return `<button${on} data-nav="${it.id}" onclick="navGo('${it.id}')">${it.label}${badge}</button>`;
+      const lock = (it.auth&&!canUse()) ? ' title="Sign in to open this"' : "";
+      return `<button${on} data-nav="${it.id}"${lock} onclick="navGo('${it.id}')">${it.label}${badge}</button>`;
     }).join("");
   });
-  if(window.refreshRqBadge)try{refreshRqBadge()}catch(e){}
+  if(window.refreshRqBadge&&canUse())try{refreshRqBadge()}catch(e){}
 }
+/* the app module exports these once it has run; until then (nothing personal is reachable yet) allow */
+function canUse(){return typeof window.tailorCanUse==="function"?window.tailorCanUse():true;}
 
 function navGo(id){
+  const it=NAV_ITEMS.find(x=>x.id===id)||{};
+  if(it.auth&&!canUse())return window.tailorRequireAuth(()=>navGo(id),"Sign in to open "+it.label);
   if(id==="answers")return location.href="dashboard.html#answers";
   /* Full-screen views (Review queue, Find, System) sit above the page, so a nav click has to
      dismiss whatever is open — otherwise the click looks like it did nothing. */
@@ -4248,11 +4276,11 @@ function navGo(id){
     if(id!=="review" && typeof window[fn]==="function"){try{window[fn]()}catch(e){}}
   });
   if(id!=="find" && typeof closeFind==="function"){try{closeFind()}catch(e){}}
-  if(id==="dash")   return location.href="dashboard.html";
+  if(id==="apps")   return location.href="dashboard.html#apps";
   if(id==="agent")  return location.href="dashboard.html#agent";
   if(id==="net")    return location.href="dashboard.html#net";
-  if(id==="find")   return (typeof openFind==="function") ? openFind() : location.href="index.html?find=1";
-  if(id==="wb")     return (typeof closeFind==="function") ? (closeFind(), go("build")) : location.href="index.html";
+  if(id==="find")   return location.href="dashboard.html";
+  if(id==="wb")     return (typeof closeFind==="function"&&typeof go==="function") ? (closeFind(), go("jd")) : location.href="index.html";
   if(id==="profile")return (typeof go==="function") ? go("profile") : location.href="index.html?profile=1";
   if(id==="review") return (typeof openReviewQueue==="function") ? openReviewQueue() : location.href="dashboard.html";
 }

@@ -1146,6 +1146,57 @@ def test_job_board_segregates_by_domain():
     check("no more 5-job cap on the feed", "slice(0,5)" not in html.split("function renderCards")[1].split("const STABS")[0])
 
 
+def test_public_board_private_everything_else():
+    section("Access · the job board and workbench are open; everything personal needs sign-in")
+    import serve, types
+    check("job board, single posting, config, discover and the form preview are public",
+          all(serve._is_public(x) for x in ("/api/jobs?sort=new", "/api/job?id=1", "/api/config", "/api/discover?q=x", "/api/form?url=x")))
+    check("applications, profile, answers, agent, track, apply are NOT public",
+          not any(serve._is_public(x) for x in ("/api/applications", "/api/profile", "/api/answers", "/api/agent/stats", "/api/track", "/api/apply-browser")))
+    check("server-to-server webhooks stay reachable (they verify themselves)",
+          serve._is_public("/api/billing/webhook") and serve._is_public("/api/inbox/inbound"))
+    # anonymous with auth ON → None (never the operator's 'local' data); auth OFF → 'local'
+    sb = serve.sb
+    orig = sb.auth_enabled
+    try:
+        sb.auth_enabled = lambda: True
+        h = types.SimpleNamespace(headers={}, path="/api/applications")
+        check("auth on + no token → anonymous (None), not 'local'", serve._req_user(h) is None)
+        sent = {}
+        h2 = types.SimpleNamespace(headers={}, path="/api/applications", _json=lambda code, body: sent.update(code=code, body=body))
+        serve._gate(h2)
+        check("gate answers 401 auth_required on a private path",
+              sent.get("code") == 401 and sent.get("body", {}).get("status") == "auth_required", str(sent))
+        h3 = types.SimpleNamespace(headers={}, path="/api/jobs?x=1", _json=lambda code, body: sent.update(code=code))
+        sent.clear(); serve._gate(h3)
+        check("gate lets the public board through", not sent)
+        sb.auth_enabled = lambda: False
+        check("auth off → single-operator 'local'", serve._req_user(types.SimpleNamespace(headers={}, path="/x")) == "local")
+    finally:
+        sb.auth_enabled = orig
+    prof, states = serve._user_ctx(None)
+    check("anonymous board has no profile and no per-user state (no DB call)", prof.get("skills") == [] and states == {})
+    check("anonymous apply signals are empty", serve._apply_signals(None) == (set(), set()))
+    root = os.path.dirname(os.path.abspath(__file__))
+    idx = open(os.path.join(root, "index.html")).read(); dash = open(os.path.join(root, "dashboard.html")).read()
+    check("nav no longer leads with a private Dashboard — Find jobs and Workbench come first",
+          'label:"Dashboard"' not in idx and 'label:"Dashboard"' not in dash and idx.index('label:"Find jobs"') < idx.index('label:"Applications"'))
+    check("private nav items are marked auth:true on both pages",
+          idx.count("auth:true") >= 6 and dash.count("auth:true") >= 6)
+    check("the sign-in gate is no longer forced on page load", "if(AUTH.cfg&&AUTH.cfg.auth&&!signedIn())showAuthGate();" not in idx)
+    check("downloading / printing the résumé asks for sign-in",
+          'onclick="tailorDownloadResume()"' in idx and 'onclick="tailorPrintResume()"' in idx
+          and "window.tailorDownloadResume=()=>requireAuth(" in idx and "window.tailorPrintResume=()=>requireAuth(" in idx)
+    # the app script is a module: inline handlers can only reach what it exports to window
+    import re as _re
+    inline = " ".join(_re.findall(r'onclick="([^"]*)"', idx))
+    check("no inline handler reaches into module-private auth state",
+          "AUTH." not in inline and "requireAuth(" not in inline and "hideAuthGate(" not in inline)
+    check("dashboard has a separate Applications view; auto-apply and tracking need sign-in",
+          'id="v-apps"' in dash and 'if(!canUse())return requireLogin("dashboard.html");' in dash and "||!canUse())return Promise.resolve();" in dash)
+    check("deep-link back after sign-in only accepts our own pages", "function safeNext" in idx and "(dashboard|index)" in idx)
+
+
 def main():
     print("═" * 62); print("ENGINE TESTS · in-memory DB · nothing submitted, no network"); print("═" * 62)
     for t in (test_apply_one_auto, test_apply_one_review, test_review_blocked_when_incomplete,
@@ -1167,7 +1218,8 @@ def main():
               test_episodic_memory_and_recall,
               test_submission_is_only_confirmed_when_the_form_is_gone,
               test_apply_budget_and_decline_matching,
-              test_job_board_segregates_by_domain):
+              test_job_board_segregates_by_domain,
+              test_public_board_private_everything_else):
         try:
             t()
         except Exception as e:

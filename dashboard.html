@@ -310,6 +310,7 @@ a{color:var(--primary-tint)}
     <span class="stat" id="planStat" style="display:none"></span>
     <button class="btn accent" id="upgradeBtn" style="display:none" onclick="upgrade()">Upgrade</button>
     <span class="stat" id="srcStat"><span class="dot"></span><span id="srcTxt">checking…</span></span>
+    <button class="btn accent" id="signInBtn" style="display:none" onclick="requireLogin(location.pathname+location.hash)">Sign in</button>
     <button class="btn" onclick="location.href='index.html'">Open workbench →</button>
   </div>
 </div></div>
@@ -324,12 +325,12 @@ a{color:var(--primary-tint)}
     </div>
     <div class="filters filters-2" style="align-items:flex-start">
       <div id="dashFilterBar" style="flex:1"></div>
-      <label class="tog live-tog" title="Off = fill the form + screenshot only. On = actually click Submit." style="margin-left:auto;border-color:var(--fair)"><input type="checkbox" id="liveMode" onchange="onLiveToggle()"> <span id="liveTxt">Fill only</span></label>
+      <label class="tog live-tog" id="liveTog" title="Off = fill the form + screenshot only. On = actually click Submit." style="margin-left:auto;border-color:var(--fair)"><input type="checkbox" id="liveMode" onchange="onLiveToggle()"> <span id="liveTxt">Fill only</span></label>
     </div>
     <div class="prog" id="prog" style="display:none"><span class="spin"></span><div class="bar"><i id="progBar"></i></div><span id="progTxt"></span></div>
 
     <div class="sechead"><h2>Jobs</h2><span class="sub" id="matchSub">ranked against your résumé</span>
-      <div class="right"><button class="btn" onclick="applyTop()" title="Opens the postings so you can apply yourself — nothing is submitted for you"><svg class="ic" viewBox="0 0 24 24"><polygon points="13 2 4 14 11 14 10 22 20 10 13 10 13 2"/></svg> Open top 5</button></div></div>
+      <div class="right"><button class="btn" id="topFive" onclick="applyTop()" title="Opens the postings so you can apply yourself — nothing is submitted for you"><svg class="ic" viewBox="0 0 24 24"><polygon points="13 2 4 14 11 14 10 22 20 10 13 10 13 2"/></svg> Open top 5</button></div></div>
     <div class="board">
       <aside class="rail" id="rail"></aside>
       <section class="feed" id="feed"><div class="fd-empty">Loading…</div></section>
@@ -378,6 +379,10 @@ a{color:var(--primary-tint)}
     .dt-a{font-size:13px;color:var(--ink);background:var(--line-soft);border-radius:7px;padding:4px 8px;margin-top:2px;white-space:pre-wrap}
     .dt-meta{display:flex;justify-content:space-between;font-size:12.5px;padding:2px 0;border-bottom:1px solid var(--line-soft)}
     </style>
+  </div>
+
+  <!-- ===================== APPLICATIONS (signed in) ===================== -->
+  <div class="view" id="v-apps">
     <div class="sechead"><h2>Auto-apply activity</h2><span class="sub" id="actSub">what the agent did — every attempt, its outcome, and the proof</span>
       <div class="right"><button class="btn" onclick="loadActivity()"><svg class="ic" viewBox="0 0 24 24"><polyline points="21 4 21 9 16 9"/><path d="M20 13a8 8 0 1 1-2.3-5.7L21 9"/></svg> Refresh</button></div></div>
     <div class="act-tabs" id="actTabs"></div>
@@ -389,7 +394,6 @@ a{color:var(--primary-tint)}
     <div class="tabs" id="statTabs"></div>
     <div class="panel"><table class="tbl" id="tbl"></table></div>
     <p class="note" id="noteLine"></p>
-  </div>
 
   <!-- ===================== AGENT CONTROL BOARD ===================== -->
   <style>
@@ -602,6 +606,14 @@ async function refresh(){
   }finally{_running=false;$("btnRefresh").disabled=false;$("prog").style.display="none";renderAll();}
 }
 /* ---- auth (share the workbench's magic-link session) ---- */
+/* ── who is here? auth is on when the server has Supabase auth; then only a signed-in
+   session may open the personal views. Without auth (single-operator, local) everything is open. */
+function signedIn(){try{const s=JSON.parse(localStorage.getItem("tsenta_session")||"null");return !!(s&&s.access_token);}catch(e){return false;}}
+function authOn(){return !!(window._cfg&&window._cfg.auth);}
+function canUse(){return !authOn()||signedIn();}
+function requireLogin(next){
+  const n=next||(location.pathname.split("/").pop()+location.hash);
+  location.href="index.html?login=1&next="+encodeURIComponent(n);}
 function authHeaders(){try{const s=JSON.parse(localStorage.getItem("tsenta_session")||"null");return s&&s.access_token?{"Authorization":"Bearer "+s.access_token}:{};}catch(e){return {};}}
 /* ---- Auto-apply activity: the agent's work, made visible ---- */
 let ACT=[],ACT_TAB="all";
@@ -617,6 +629,8 @@ async function syncLocalToServer(){
   try{localStorage.setItem("tailor_synced_v1","1");}catch(e){}
 }
 async function loadActivity(){
+  await window._cfgReady;                 // don't ask for personal data before we know whether auth is on
+  if(!canUse())return;
   const list=$("actList");if(list&&!ACT.length)list.innerHTML='<div class="skel"></div><div class="skel"></div>';
   let d;try{d=await fetch("/api/applications",{headers:authHeaders()}).then(x=>x.json());}catch(e){d={ok:false};}
   if(!d||!d.ok){
@@ -846,7 +860,10 @@ function renderRail(){
     return (tree[b].count||0)-(tree[a].count||0);});
   const total=names.reduce((n,k)=>n+(tree[k].count||0),0);
   let h="";
-  if(mine&&tree[mine]){
+  if(!canUse()){
+    h+=`<div class="rl-you"><b>Jobs for your field</b><span>Sign in and we'll put your domain first — an AI engineer sees AI / ML, a nurse sees Clinical.</span>
+      <div class="pick"><button class="btn accent" style="padding:5px 10px;font-size:12px" onclick="requireLogin('dashboard.html')">Sign in</button></div></div>`;}
+  else if(mine&&tree[mine]){
     h+=`<div class="rl-you"><b>For you</b><span>${esc(mine)}${mysub?" › "+esc(mysub):""} — from your profile</span>
       <div class="pick"><button class="btn" style="padding:5px 10px;font-size:12px" data-cat="${esc(mine)}"${mysub?` data-sub="${esc(mysub)}"`:""} onclick="boardGo(this.dataset.cat,this.dataset.sub)">Show mine</button>
       <button class="btn ghost" style="padding:5px 10px;font-size:12px" onclick="boardGo(null,null)">Everything</button></div></div>`;}
@@ -936,7 +953,7 @@ function applyTop(){const l=visible().slice(0,5);if(!l.length){toast("No matches
   const rz=resumeHtml();l.forEach((j,i)=>{setState(j.url,"saved",j,{resume_html:rz});trackServer(j,"draft",rz);if(i<3)window.open(j.url,"_blank","noopener");});renderAll();loadActivity();toast(`Opened ${Math.min(3,l.length)} of ${l.length} — apply on the site, then Mark applied`);}
 /* record a manual/self-apply on the server so it appears in Activity WITH the résumé */
 function trackServer(job,status,resume_html){
-  if(!(job&&job.id))return Promise.resolve();
+  if(!(job&&job.id)||!canUse())return Promise.resolve();
   return fetch("/api/track",{method:"POST",headers:{"Content-Type":"application/json",...authHeaders()},
     body:JSON.stringify({job_id:job.id,status:status,resume_html:resume_html||"",url:job.url,label:(job.title||"")+" · "+(job.company||job.company_slug||""),
       detail:"Opened the posting — nothing submitted yet. Apply on the site, then hit Mark applied.",backend:"you"})}).catch(()=>{});
@@ -1032,9 +1049,19 @@ function toggleAutoSubmit(){
   toast(on?"Auto-submit ON — applications will be sent automatically":"Fill-only — you review each before it's sent");
 }
 (function(){try{if(localStorage.getItem("tailor_live")==="1"){const c=document.getElementById("liveMode");if(c){c.checked=true;}}}catch(e){}renderAutoSubmitPill();})();
+function applyAuthChrome(){
+  const anon=!canUse();
+  ["autoSubmitPill","liveTog","topFive"].forEach(id=>{const el=$(id);if(el)el.style.display=anon?"none":"";});
+  if($("signInBtn"))$("signInBtn").style.display=anon?"":"none";
+  if(window.renderNav)renderNav(document.querySelector(".view.on")&&document.querySelector(".view.on").id==="v-apps"?"apps":"find");
+  if(anon&&!$("v-dash").classList.contains("on"))showView("dash");
+}
+let _cfgResolve;window._cfgReady=new Promise(r=>{_cfgResolve=r;});   // canUse() is only meaningful once config is known
 async function loadPlan(){
-  let c;try{c=await fetch("/api/config").then(r=>r.json());}catch(e){return;}
+  let c;try{c=await fetch("/api/config").then(r=>r.json());}catch(e){_cfgResolve();return;}
+  _cfgResolve();
   window._cfg=c;const plan=c.plan||"local";
+  applyAuthChrome();
   if($("planStat")&&plan!=="local"){$("planStat").style.display="";$("planStat").innerHTML=`<span class="dot" style="background:${plan==="free"?"var(--ink-faint)":"var(--exc-ring)"}"></span>${plan} plan`;}
   if($("upgradeBtn")&&c.billing&&plan==="free")$("upgradeBtn").style.display="";
 }
@@ -1052,6 +1079,7 @@ function tailorJob(url){
   location.href="index.html?tailor=1";
 }
 async function autoApply(url,btn){
+  if(!canUse())return requireLogin("dashboard.html");
   const j=JOBS.find(x=>x.url===url)||{url};const label=(j.title||"")+" · "+(j.company||"");
   if(btn){btn.disabled=true;btn.dataset.t=btn.textContent;btn.textContent="…";}
   let res;
@@ -1162,12 +1190,14 @@ async function saveOrch(btn){
   if($("agSaved")){$("agSaved").textContent=(r&&r.ok)?"Saved ✓":"Couldn't save";setTimeout(()=>{if($("agSaved"))$("agSaved").textContent="";},2500);}
 }
 function showView(v,noHash){
-  if(window.renderNav)renderNav(v==="net"?"net":v==="agent"?"agent":"dash");if(!$("v-"+v))v="dash";document.querySelectorAll(".view").forEach(el=>el.classList.remove("on"));$("v-"+v).classList.add("on");
+  if(v!=="dash"&&!canUse()){return requireLogin("dashboard.html#"+v);}
+  if(window.renderNav)renderNav(v==="net"?"net":v==="agent"?"agent":v==="apps"?"apps":"find");if(!$("v-"+v))v="dash";document.querySelectorAll(".view").forEach(el=>el.classList.remove("on"));$("v-"+v).classList.add("on");
   document.querySelectorAll(".nav button[data-view]").forEach(b=>b.classList.toggle("on",b.dataset.view===v));
   if(v==="agent")loadAgent();
+  if(v==="apps")loadActivity();
   if(!noHash&&("#"+v)!==location.hash){try{history.replaceState(null,"","#"+v);}catch(e){}}
   if(v==="net")renderNet();}
-function viewFromHash(){const v=(location.hash||"").replace(/^#/,"");showView(v==="net"?"net":"dash",true);}
+function viewFromHash(){const v=(location.hash||"").replace(/^#/,"");showView(["net","agent","apps"].includes(v)?v:"dash",true);}
 window.addEventListener("hashchange",viewFromHash);
 viewFromHash();
 if(window.TailorFilters)TailorFilters.mount("dashFilterBar",()=>refresh());
@@ -1263,39 +1293,42 @@ window.showReviewQueue=showReviewQueue;window.refreshRqBadge=refreshRqBadge;
    There were three hand-maintained copies (workbench, find-jobs, dashboard) and they
    drifted: find-jobs was missing Review queue and Agent, the dashboard was missing
    Review queue. Generating them from this list is the only way they stay identical. */
+/* Public: Find jobs + Workbench. Everything else is personal and asks you to sign in. */
 const NAV_ITEMS = [
-  {id:"dash",    label:"Dashboard"},
   {id:"find",    label:"Find jobs"},
   {id:"wb",      label:"Workbench"},
-  {id:"profile", label:"Profile"},
-  {id:"answers", label:"Answer bank"},
-  {id:"review",  label:"Review queue", badge:"rqNav"},
-  {id:"agent",   label:"Agent"},
-  {id:"net",     label:"Networking"},
+  {id:"apps",    label:"Applications", auth:true},
+  {id:"profile", label:"Profile", auth:true},
+  {id:"answers", label:"Answer bank", auth:true},
+  {id:"review",  label:"Review queue", badge:"rqNav", auth:true},
+  {id:"agent",   label:"Agent", auth:true},
+  {id:"net",     label:"Networking", auth:true},
 ];
 function renderNav(active){
   document.querySelectorAll("nav.pnav, nav.nav").forEach(nav=>{
     nav.innerHTML = NAV_ITEMS.map(it=>{
       const on = it.id===active ? ' class="on"' : "";
       const badge = it.badge ? `<span id="${it.badge}" class="rq-badge" style="display:none"></span>` : "";
-      return `<button${on} data-nav="${it.id}" onclick="navGo('${it.id}')">${it.label}${badge}</button>`;
+      const lock = (it.auth&&!canUse()) ? ' title="Sign in to open this"' : "";
+      return `<button${on} data-nav="${it.id}"${lock} onclick="navGo('${it.id}')">${it.label}${badge}</button>`;
     }).join("");
   });
-  if(window.refreshRqBadge)try{refreshRqBadge()}catch(e){}
+  if(window.refreshRqBadge&&canUse())try{refreshRqBadge()}catch(e){}
 }
-
 function navGo(id){
+  const it=NAV_ITEMS.find(x=>x.id===id)||{};
+  if(it.auth&&!canUse())return requireLogin(id==="profile"?"index.html?profile=1":"dashboard.html#"+id);
   if(id==="answers")return openAnswerBank();
   if(id==="wb")     return location.href="index.html";
-  if(id==="find")   return location.href="index.html?find=1";
+  if(id==="find")   return showView("dash");
   if(id==="profile")return location.href="index.html?profile=1";
   if(id==="review") return showReviewQueue();
   if(id==="agent")  return showView("agent");
   if(id==="net")    return showView("net");
-  if(id==="dash")   return showView("dash");
+  if(id==="apps")   return showView("apps");
 }
-window.renderNav=renderNav;window.navGo=navGo;
-renderNav("dash");
+window.renderNav=renderNav;window.navGo=navGo;window.requireLogin=requireLogin;window.canUse=canUse;
+renderNav("find");
 </script>
 
 <!-- ── Answer bank: fill once, reused on every application ────────────────────── -->

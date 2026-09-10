@@ -512,14 +512,52 @@ def _apply_gate(user):
             pass
     return (n < FREE_APPLY_LIMIT), plan
 
+# Paths anyone may call without signing in: the job board, one posting's text, the config
+# flag, company discovery and the Greenhouse question preview. Everything else is personal
+# (profile, applications, agent, answers) and needs a signed-in user when auth is enabled.
+PUBLIC_PATHS = ("/api/config", "/api/jobs", "/api/job", "/api/discover", "/api/form")
+# server-to-server hooks carry their own verification and never have a user token
+_WEBHOOKS = ("/api/billing/webhook", "/api/inbox/inbound")
+_TOKEN_CACHE = {}   # token → (expires, user_id) — GoTrue lookups are a network round-trip each
+
+def _is_public(path):
+    p = urllib.parse.urlparse(path).path
+    return p in _WEBHOOKS or any(p == x or p.startswith(x + "/") or p.startswith(x + "?") for x in PUBLIC_PATHS)
+
 def _req_user(handler):
-    """Signed-in user_id from the Bearer token (multi-tenant), else 'local' (single-operator)."""
+    """Signed-in user_id from the Bearer token (multi-tenant). 'local' when auth is not
+    configured (single-operator mode). None when auth IS configured and the caller is not
+    signed in — an anonymous visitor on the public job board, who must never be handed the
+    operator's 'local' profile or applications."""
     if not (sb and sb.auth_enabled()):
         return "local"
+    cached = getattr(handler, "_user_cached", "unset")
+    if cached != "unset":
+        return cached
     auth = handler.headers.get("Authorization", "")
     token = auth[7:] if auth.startswith("Bearer ") else ""
-    u = sb.auth_user(token) if token else None
-    return u["id"] if u and u.get("id") else "local"
+    uid = None
+    if token:
+        now = time.time(); hit = _TOKEN_CACHE.get(token)
+        if hit and hit[0] > now:
+            uid = hit[1]
+        else:
+            u = sb.auth_user(token)
+            uid = u["id"] if u and u.get("id") else None
+            if uid:
+                if len(_TOKEN_CACHE) > 5000: _TOKEN_CACHE.clear()
+                _TOKEN_CACHE[token] = (now + 60, uid)
+    handler._user_cached = uid
+    return uid
+
+def _gate(handler):
+    """401 for anonymous callers on private endpoints; None when the request may proceed."""
+    if _is_public(handler.path):
+        return None
+    if _req_user(handler) is None:
+        return handler._json(401, {"ok": False, "status": "auth_required",
+                                   "detail": "Sign in to use this — the job board and workbench are open to everyone."})
+    return "ok"
 
 def _profile(user="local"):
     rows = sb.select("profiles", {"user_id": f"eq.{user}", "select": "skills,title,memory,name,email"})
@@ -613,6 +651,8 @@ def _cached_pool(params):
 _USER_CACHE = {}   # user -> (expiry, profile, {job_id:status})
 
 def _user_ctx(user):
+    if user is None:                                            # anonymous visitor on the public board
+        return {"skills": [], "title": "", "memory": {}}, {}
     now = time.time(); hit = _USER_CACHE.get(user)
     if hit and hit[0] > now:
         return hit[1], hit[2]
@@ -731,6 +771,8 @@ def _apply_signals(user):
     """Companies where this user's past attempts hit a captcha (→ assisted) or a dead end
     like no-submit/unsupported (→ manual). Lets us stop calling a board 'auto' once we've
     learned it won't complete. Cached briefly."""
+    if user is None:
+        return set(), set()
     now = time.time(); hit = _APPLY_SIG.get(user)
     if hit and hit[0] > now:
         return hit[1], hit[2]
@@ -834,9 +876,9 @@ def jobs_query(qs, user="local"):
         node = tree.setdefault(d, {"count": 0, "subs": {}})
         node["count"] += 1
         node["subs"][sb_] = node["subs"].get(sb_, 0) + 1
-    my_d, my_s = _my_domain(prof)
+    my_d, my_s = _my_domain(prof) if user is not None else (None, None)   # anonymous: no "your field"
     facets = {"employment_types": [e for e, _ in ets.most_common(12)],
-              "categories": tree, "my_domain": my_d, "my_sub": my_s,
+              "categories": tree, "my_domain": my_d, "my_sub": my_s, "signed_in": user is not None,
               "countries": [c for c, _ in ctry.most_common(40)],
               "companies": [c for c, _ in comps.most_common(50)],
               "vendors": sorted({j.get("vendor") for j in pool if j.get("vendor")})}
@@ -1130,6 +1172,8 @@ class H(SimpleHTTPRequestHandler):
         except Exception:
             self._json(404, {"ok": False})
     def do_GET(self):
+        if self.path.startswith("/api/") and _gate(self) is None and not _is_public(self.path):
+            return
         if self.path.startswith("/api/discover"):
             qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
             terms = [t.strip().lower() for t in (qs.get("q") or [""])[0].split(",") if t.strip()]
@@ -1277,6 +1321,8 @@ class H(SimpleHTTPRequestHandler):
                 return self._json(200, {"ok": False, "status": "fetch_error", "detail": str(e)[:200]})
         return super().do_GET()
     def do_POST(self):
+        if self.path.startswith("/api/") and _gate(self) is None and not _is_public(self.path):
+            return
         if self.path == "/api/profile" or self.path == "/api/jobs/state":
             if not (sb and sb.is_configured()):
                 return self._json(200, {"ok": False, "status": "no_db",

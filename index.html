@@ -15,7 +15,7 @@
   --paper:#0a0b10;--card:#14151d;--card-2:#1b1c26;--card-3:#20212c;--line:#282a38;--line-soft:#20212c;
   --indigo:#2f6a4a;--indigo-deep:#183527;--accent:#2f6a4a;--marker:#ffe15a;
   --good:#3ecf8e;--good-bg:rgba(62,207,142,.14);--gap:#f26d84;--gap-bg:rgba(242,109,132,.14);--warn:#e6ae44;--warn-bg:rgba(230,174,68,.14);
-  --radius:14px;--shadow:0 1px 2px rgba(0,0,0,.5),0 16px 40px -14px rgba(0,0,0,.65);
+  --radius:10px;--shadow:0 1px 2px rgba(0,0,0,.5),0 16px 40px -14px rgba(0,0,0,.65);
 }
 *{box-sizing:border-box}html,body{margin:0;padding:0}
 body{background:var(--paper);color:var(--ink);font-family:"Inter",system-ui,sans-serif;font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased}
@@ -567,6 +567,12 @@ code{background:var(--card-3);color:#2f6a4a}
 *{scrollbar-color:#cfcfc6 transparent}
 ::-webkit-scrollbar-thumb{background:#d6d6cd;border:3px solid transparent;background-clip:content-box}
 
+
+/* ── Geist pass: one radius scale, hairlines, quieter shadows (matches the dashboard) ── */
+.btn,.in,.step,.pv-ava{border-radius:8px}
+.pcard,.ob-qcard,.jobs-detail,#authBox,.card{border-radius:10px}
+.card{box-shadow:0 1px 2px rgba(26,36,32,.04)}
+.btn:focus-visible,.in:focus-visible{outline:2px solid var(--primary-tint,#2f6a4a);outline-offset:2px}
 </style>
 <script src="filters.js"></script>
 </head>

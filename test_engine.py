@@ -1139,6 +1139,10 @@ def test_job_board_segregates_by_domain():
     check("board sends category / sub / page to the API",
           'p.set("category"' in html and 'p.set("sub"' in html and 'p.set("page"' in html)
     check("board opens on the user's own domain first", "r.facets.my_domain" in html)
+    check("rows open a detail drawer that lazily loads the full description",
+          'id="drawer"' in html and '/api/job?id=' in html)
+    srv = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "serve.py")).read()
+    check("server serves a single posting's description at /api/job", 'path == "/api/job"' in srv and "def job_detail" in srv)
     check("no more 5-job cap on the feed", "slice(0,5)" not in html.split("function renderCards")[1].split("const STABS")[0])
 
 

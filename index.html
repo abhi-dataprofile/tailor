@@ -595,13 +595,13 @@ code{background:var(--card-3);color:#2f6a4a}
 .cr-cost{font:500 11px "Geist Mono","JetBrains Mono",monospace;opacity:.7}
 /* ── résumé sheet: real page width, scaled to the pane; every size hangs off --rs ── */
 .rs-view{max-width:100%;overflow:visible;margin:0 auto}
-.resume{--rs:1;--rs-font:"Geist","Inter",system-ui,sans-serif;--rs-base:13.5px;--rs-lh:1.55;--rs-pad:44px 48px;--rs-gap:15px;--rs-h2:22px;--rs-li:3px;--rs-accent:#1c1c28;
+.resume{--rs:1;--rs-font:"Geist","Inter",system-ui,sans-serif;--rs-base:13.5px;--rs-lh:1.55;--rs-pad:44px 48px;--rs-gap:15px;--rs-h2:22px;--rs-li:3px;
   font-family:var(--rs-font);padding:var(--rs-pad);width:816px;max-width:none;min-height:1056px;position:relative;box-sizing:border-box;margin:0;border-radius:4px}
 .resume.serif{--rs-font:Georgia,"Times New Roman",serif}
 .resume.fit-tight{--rs-lh:1.35;--rs-gap:8px;--rs-h2:13px;--rs-li:1px;--rs-pad:26px 32px}
 .resume h1{font-family:var(--rs-font);font-size:calc(30px*var(--rs));letter-spacing:-.02em}
 .resume .contact{font-size:calc(12.5px*var(--rs))}
-.resume h2{font-family:var(--rs-font);font-size:calc(13.5px*var(--rs));color:var(--rs-accent);border-bottom:2px solid var(--rs-accent);margin:calc(var(--rs-h2)*var(--rs)) 0 calc(10px*var(--rs))}
+.resume h2{font-family:var(--rs-font);font-size:calc(13.5px*var(--rs));color:#1c1c28;border-bottom:2px solid #1c1c28;margin:calc(var(--rs-h2)*var(--rs)) 0 calc(10px*var(--rs))}
 .resume .r-sum,.resume .r-exp li,.resume .r-skline{font-size:calc(var(--rs-base)*var(--rs));line-height:var(--rs-lh)}
 .resume .r-exp{margin-bottom:calc(var(--rs-gap)*var(--rs))}
 .resume .r-exp .rc{font-size:calc(14.5px*var(--rs))}.resume .r-exp .rp{font-size:calc(13px*var(--rs))}.resume .r-exp .rd{font-size:calc(11.5px*var(--rs))}
@@ -621,8 +621,19 @@ code{background:var(--card-3);color:#2f6a4a}
 .rs-bar .rs-seg button{border:0;border-radius:0;border-right:1px solid var(--line)}
 .rs-bar .rs-seg button:last-child{border-right:0}
 .rs-bar .rs-seg b{font:600 11.5px "Geist Mono","JetBrains Mono",monospace;padding:0 7px;color:var(--ink)}
-.rs-bar .rs-accent button{width:22px;height:22px;padding:0;border:2px solid transparent}
-.rs-bar .rs-accent button.on{border-color:#fff}
+.rs-popwrap{position:relative}
+.rs-pop{display:none;position:absolute;top:calc(100% + 6px);left:0;z-index:20;width:320px;padding:12px 14px;border:1px solid var(--line);border-radius:10px;background:var(--card);box-shadow:0 16px 40px rgba(0,0,0,.6)}
+.rs-pop.open{display:block}
+.rs-pop label{display:grid;grid-template-columns:1fr 60px;gap:2px 10px;align-items:center;margin-bottom:9px;font-size:12px;color:var(--ink-soft)}
+.rs-pop label span{grid-column:1/3}
+.rs-pop label b{font:600 11.5px "Geist Mono","JetBrains Mono",monospace;color:var(--ink);text-align:right}
+.rs-pop input[type=range]{width:100%;accent-color:#ededed;margin:0}
+.rs-pop-foot{display:flex;gap:10px;align-items:center;margin-top:6px;font-size:11.5px}
+.rs-pop-foot button{border:1px solid var(--line);background:var(--card-2);color:var(--ink);font:600 11.5px "Geist","Inter",sans-serif;padding:5px 9px;border-radius:6px;cursor:pointer}
+/* Modern template: quieter headings, name + contact on one line */
+.resume.tpl-modern h1{font-size:calc(26px*var(--rs))}
+.resume.tpl-modern .contact{font-family:var(--rs-font);color:#444}
+.resume.tpl-modern h2{border-bottom:0;border-top:1px solid #d8d8d8;padding:calc(8px*var(--rs)) 0 0;font-size:calc(11px*var(--rs));letter-spacing:.14em;color:#555}
 .rs-bar .rs-sep{width:1px;height:20px;background:var(--line);margin:0 2px}
 .rs-bar .rs-secs button.on{background:rgba(255,255,255,.1);color:var(--ink)}
 .rs-bar .rs-meter{margin-left:auto;font:500 11.5px "Geist Mono","JetBrains Mono",monospace;color:var(--ink-soft)}
@@ -929,8 +940,9 @@ code{background:var(--card-3);color:#2f6a4a}
         <div><div class="eyebrow">Step 04 — the deliverable</div><h2>Your resume</h2></div>
         <div class="row-btns" style="margin:0">
           <button class="btn" onclick="buildResume()">Rebuild</button>
-          <button class="btn" onclick="tailorPrintResume()">Print / Save as PDF</button>
-          <button class="btn accent" onclick="tailorDownloadResume()">Download HTML</button>
+          <button class="btn" onclick="tailorPrintResume()">Print</button>
+          <button class="btn accent" onclick="tailorDownloadPDF()">Download PDF</button>
+          <button class="btn" onclick="tailorDownloadResume()">Download HTML</button>
         </div>
       </div>
       <p class="hint">Everything below is editable — click any line and type. Rebuild pulls your latest profile edits and the summary you chose on step 3.</p>
@@ -3050,22 +3062,31 @@ const RESUME_TOOLBAR=`<div id="resumeAdd" class="no-print" style="max-width:800p
    The sheet is laid out at real page width (Letter 816px / A4 794px @96dpi) and scaled to
    fit the pane, so what you see is what prints. Style is per job: page, font, size, density,
    margins, accent, and a fit-to-one-page scale that shrinks type/spacing until it fits. */
-const RS_DEFAULT={page:"letter",font:"sans",size:13.5,density:"normal",margins:"normal",accent:"#1c1c28",fit:true,scale:1};
-const RS_DENSITY={compact:{lh:1.4,gap:10,h2:15,li:2},normal:{lh:1.55,gap:15,h2:22,li:3},roomy:{lh:1.7,gap:20,h2:28,li:4}};
-const RS_MARGINS={narrow:"28px 34px",normal:"44px 48px",wide:"58px 64px"};
+/* every spacing value is a number the user can drag: line height, bullet gap, section gap,
+   heading gap, page margins (top/bottom and sides). Headings stay ink-black — no accent. */
+const RS_DEFAULT={page:"letter",font:"sans",tpl:"classic",size:13.5,lh:1.55,li:3,gap:15,h2:22,pad:44,padx:48,fit:true,scale:1,tight:false};
+const RS_RANGE={size:[10.5,16,0.5],lh:[1.15,1.9,0.05],li:[0,10,1],gap:[6,40,1],h2:[8,36,1],pad:[16,72,2],padx:[16,80,2]};
+const RS_LABEL={size:"Type size",lh:"Line spacing",li:"Space between bullets",gap:"Space between roles",h2:"Space above headings",pad:"Margins · top & bottom",padx:"Margins · sides"};
+const RS_DENSITY={compact:{lh:1.4,gap:10,h2:15,li:2},normal:{lh:1.55,gap:15,h2:22,li:3},roomy:{lh:1.7,gap:20,h2:28,li:4}};   // legacy presets → numbers
+const RS_MARGINS={narrow:[28,34],normal:[44,48],wide:[58,64]};
 const RS_PAGE={letter:{w:816,h:1056,css:"letter"},a4:{w:794,h:1123,css:"A4"}};
 function rstyle(){   // normalise IN PLACE — callers hold the reference across other rstyle() calls
   if(!state.resumeStyle||typeof state.resumeStyle!=="object")state.resumeStyle={};
-  for(const k in RS_DEFAULT)if(state.resumeStyle[k]===undefined)state.resumeStyle[k]=RS_DEFAULT[k];
-  return state.resumeStyle;}
+  const st=state.resumeStyle;
+  if(st.density&&RS_DENSITY[st.density]){Object.assign(st,RS_DENSITY[st.density]);delete st.density;}     // migrate old presets
+  if(st.margins&&RS_MARGINS[st.margins]){[st.pad,st.padx]=RS_MARGINS[st.margins];delete st.margins;}
+  delete st.accent;
+  for(const k in RS_DEFAULT)if(st[k]===undefined)st[k]=RS_DEFAULT[k];
+  return st;}
 function rsPageH(){return RS_PAGE[rstyle().page].h;}
 function rsContentH(d){const mh=d.style.minHeight;d.style.minHeight="0";const h=d.scrollHeight;d.style.minHeight=mh;return h;}   // the sheet is padded to a full page; measure the content
 function applyResumeStyle(){
-  const d=$("resumeDoc");if(!d)return;const st=rstyle();const den=RS_DENSITY[st.density]||RS_DENSITY.normal;const pg=RS_PAGE[st.page]||RS_PAGE.letter;
+  const d=$("resumeDoc");if(!d)return;const st=rstyle();const pg=RS_PAGE[st.page]||RS_PAGE.letter;
   d.classList.toggle("serif",st.font==="serif");d.classList.toggle("a4",st.page==="a4");d.classList.toggle("fit-tight",!!(st.fit&&st.tight));
-  d.style.setProperty("--rs",st.scale);d.style.setProperty("--rs-base",st.size+"px");d.style.setProperty("--rs-lh",den.lh);
-  d.style.setProperty("--rs-gap",den.gap+"px");d.style.setProperty("--rs-h2",den.h2+"px");d.style.setProperty("--rs-li",den.li+"px");
-  d.style.setProperty("--rs-pad",RS_MARGINS[st.margins]||RS_MARGINS.normal);d.style.setProperty("--rs-accent",st.accent);
+  d.classList.toggle("tpl-modern",st.tpl==="modern");
+  d.style.setProperty("--rs",st.scale);d.style.setProperty("--rs-base",st.size+"px");d.style.setProperty("--rs-lh",st.lh);
+  d.style.setProperty("--rs-gap",st.gap+"px");d.style.setProperty("--rs-h2",st.h2+"px");d.style.setProperty("--rs-li",st.li+"px");
+  d.style.setProperty("--rs-pad",st.pad+"px "+st.padx+"px");
   d.style.width=pg.w+"px";d.style.minHeight=pg.h+"px";
   SECTIONS.forEach(k=>d.classList.toggle("hide-"+k,(state.secHidden||[]).includes(k)));
   let pr=document.getElementById("rsPageRule");if(!pr){pr=document.createElement("style");pr.id="rsPageRule";document.head.appendChild(pr);}
@@ -3074,6 +3095,14 @@ function applyResumeStyle(){
 function rsSet(key,val){const st=rstyle();
   if(key==="size")val=Math.max(10.5,Math.min(16,(+st.size||13.5)+(+val)));
   st[key]=val;persist();applyResumeStyle();if(st.fit)fitOnePage();else{st.scale=1;applyResumeStyle();}rsAfterLayout();renderDesignBar();}
+/* a slider drag: absolute numeric value, clamped to its range; the popover stays open */
+function rsSetNum(key,val){const st=rstyle();const [lo,hi]=RS_RANGE[key]||[0,999];const v=Math.max(lo,Math.min(hi,+val));if(isNaN(v))return;
+  st[key]=Math.round(v*100)/100;persist();applyResumeStyle();if(st.fit)fitOnePage();else{st.scale=1;applyResumeStyle();}rsAfterLayout();renderDesignBar();
+  const pop=$("rsPop");if(pop)pop.classList.add("open");const out=pop&&pop.querySelector(`[data-out="${key}"]`);if(out)out.textContent=rsFmt(key,st[key]);}
+function rsFmt(k,v){return k==="lh"?(+v).toFixed(2)+"×":k==="size"?v+"px":v+"px";}
+function rsResetSpacing(){const st=rstyle();["lh","li","gap","h2","pad","padx","size"].forEach(k=>st[k]=RS_DEFAULT[k]);persist();applyResumeStyle();if(st.fit)fitOnePage();rsAfterLayout();renderDesignBar();const pop=$("rsPop");if(pop)pop.classList.add("open");}
+function rsTogglePop(){const pop=$("rsPop");if(pop)pop.classList.toggle("open");}
+document.addEventListener("click",e=>{const pop=$("rsPop");if(pop&&pop.classList.contains("open")&&!e.target.closest("#rsPop")&&!e.target.closest("[data-pop]"))pop.classList.remove("open");});
 function fitOnePage(){
   /* Three stages, least visible first: shrink type a little (→88%), then tighten spacing and
      margins (a .fit-tight class — the user's own density/margins choice is untouched), then
@@ -3111,7 +3140,7 @@ function rsToggleSec(k){const h=new Set(state.secHidden||[]);if(h.has(k))h.delet
 function copyResumeText(){const d=$("resumeDoc");if(d)copyResumePart(d,"résumé");}
 const SEC_LABEL={sum:"Summary",skills:"Skills",exp:"Experience",proj:"Projects",edu:"Education"};
 function renderDesignBar(histOnly){
-  const host=$("rsBar");if(!host)return;const st=rstyle();
+  const host=$("rsBar");if(!host)return;const st=rstyle();const popOpen=!!($("rsPop")&&$("rsPop").classList.contains("open"));
   if(histOnly){const u=host.querySelector("[data-undo]"),r=host.querySelector("[data-redo]");if(u)u.disabled=RS_HIST.i<=0;if(r)r.disabled=RS_HIST.i>=RS_HIST.stack.length-1;return;}
   const seg=(key,opts)=>`<span class="rs-seg">${opts.map(([v,l])=>`<button class="${st[key]===v?"on":""}" onclick="rsSet('${key}','${v}')">${l}</button>`).join("")}</span>`;
   host.innerHTML=`
@@ -3119,15 +3148,17 @@ function renderDesignBar(histOnly){
     ${seg("page",[["letter","Letter"],["a4","A4"]])}
     ${seg("font",[["sans","Sans"],["serif","Serif"]])}
     <span class="rs-seg" title="Base type size"><button onclick="rsSet('size',-0.5)">A−</button><b>${st.size}</b><button onclick="rsSet('size',0.5)">A+</button></span>
-    ${seg("density",[["compact","Compact"],["normal","Normal"],["roomy","Roomy"]])}
-    ${seg("margins",[["narrow","Narrow"],["normal","Margins"],["wide","Wide"]])}
-    <span class="rs-seg rs-accent" title="Heading accent">${["#1c1c28","#0b57d0","#1f7a4d","#8a3ffc","#b4232c"].map(c=>`<button class="${st.accent===c?"on":""}" style="background:${c}" onclick="rsSet('accent','${c}')"></button>`).join("")}</span>
+    ${seg("tpl",[["classic","Classic"],["modern","Modern"]])}
+    <span class="rs-popwrap"><button data-pop class="${$("rsPop")&&$("rsPop").classList.contains("open")?"on":""}" onclick="rsTogglePop()" title="Line spacing, bullet gap, section gap, heading gap, margins">Spacing ▾</button>
+      <div class="rs-pop" id="rsPop">${["lh","li","gap","h2","pad","padx"].map(k=>{const [lo,hi,step]=RS_RANGE[k];return `<label><span>${RS_LABEL[k]}</span><input type="range" min="${lo}" max="${hi}" step="${step}" value="${st[k]}" oninput="rsSetNum('${k}',this.value)"><b data-out="${k}">${rsFmt(k,st[k])}</b></label>`;}).join("")}
+        <div class="rs-pop-foot"><button onclick="rsResetSpacing()">Reset spacing</button><span class="muted">Fit to one page may tighten these further while it's on.</span></div></div></span>
     <span class="rs-sep"></span>
     <span class="rs-seg" title="Select text, then format"><button onmousedown="fmt(event,'bold')"><b>B</b></button><button onmousedown="fmt(event,'italic')"><i>I</i></button><button onmousedown="fmt(event,'underline')"><u>U</u></button><button onmousedown="fmt(event,'insertUnorderedList')" title="Bullet list">•≡</button><button onmousedown="fmt(event,'removeFormat')" title="Clear formatting">Tx</button></span>
     <span class="rs-seg"><button data-undo onclick="undoResume()" title="Undo (⌘Z)" ${RS_HIST.i<=0?"disabled":""}>↶</button><button data-redo onclick="redoResume()" title="Redo (⇧⌘Z)" ${RS_HIST.i>=RS_HIST.stack.length-1?"disabled":""}>↷</button></span>
     <span class="rs-seg rs-secs" title="Show / hide sections">${SECTIONS.map(k=>`<button class="${(state.secHidden||[]).includes(k)?"":"on"}" onclick="rsToggleSec('${k}')">${SEC_LABEL[k]}</button>`).join("")}</span>
     <button class="rs-plain" onclick="copyResumeText()" title="Copy the whole résumé as plain text (for ATS boxes)">Copy as text</button>
     <span class="rs-meter" id="rsMeter"></span>`;
+  if(popOpen)$("rsPop").classList.add("open");
   rsMeter();
 }
 function paintResume(){
@@ -3143,7 +3174,7 @@ function paintResume(){
 function buildResume(){ state.resumeEdited=false; state.resumeDoc=null; paintResume(); }
 function saveResumeDoc(){ const d=$("resumeDoc"); if(!d)return; state.resumeDoc=d.innerHTML; state.resumeEdited=true; try{localStorage.setItem("tailor_ollama",JSON.stringify({state,jd:{...jd},chosenSummary}));}catch(e){}
   clearTimeout(window._rsT);window._rsT=setTimeout(()=>{rsPush(d.innerHTML);if(rstyle().fit)fitOnePage();rsAfterLayout();},350); }
-window.rsSet=rsSet;window.rsToggleFit=rsToggleFit;window.fitOnePage=fitOnePage;window.undoResume=undoResume;window.redoResume=redoResume;window.rsToggleSec=rsToggleSec;window.copyResumeText=copyResumeText;
+window.rsSet=rsSet;window.rsSetNum=rsSetNum;window.rsResetSpacing=rsResetSpacing;window.rsTogglePop=rsTogglePop;window.rsToggleFit=rsToggleFit;window.fitOnePage=fitOnePage;window.undoResume=undoResume;window.redoResume=redoResume;window.rsToggleSec=rsToggleSec;window.copyResumeText=copyResumeText;
 function ensureSection(kind){
   const doc=$("resumeDoc");let sec=doc.querySelector(`.r-sec[data-sec="${kind}"]`);
   if(sec)return sec;
@@ -3195,13 +3226,67 @@ function saveTailoredToProfile(){
   hydrateProfile();persist();buildResume();
   toast("Saved to your profile — see Step 2");
 }
-function downloadResume(){
-  const src=$("resumeDoc");if(!src){toast("Build the resume first");return;}
+/* the on-screen design, as plain CSS numbers (no vars / calc) — used by both exports */
+function resumeExportCSS(){
+  const st=rstyle();const k=st.scale||1;const pg=RS_PAGE[st.page]||RS_PAGE.letter;const tight=!!(st.fit&&st.tight);
+  const lh=tight?1.35:st.lh,li=tight?1:st.li,gap=tight?8:st.gap,h2=tight?13:st.h2,pad=tight?26:st.pad,padx=tight?32:st.padx;
+  const font=st.font==="serif"?"Georgia,'Times New Roman',serif":"'Geist','Inter',system-ui,-apple-system,Arial,sans-serif";
+  const modern=st.tpl==="modern";
+  const px=v=>Math.round(v*k*100)/100+"px";
+  return `@page{size:${pg.css};margin:0}*{box-sizing:border-box}body{margin:0;background:#fff}
+.resume{font-family:${font};color:#1c1c28;width:${pg.w}px;min-height:${pg.h}px;margin:0 auto;padding:${pad}px ${padx}px;background:#fff}
+h1{font-family:${font};font-size:${px(30)};margin:0;letter-spacing:-.02em;font-weight:700}
+.contact{font-size:${px(12.5)};color:#666;margin-top:4px;font-family:${modern?font:"'Geist Mono','JetBrains Mono',Menlo,monospace"}}
+h2{font-family:${font};font-size:${px(13.5)};text-transform:uppercase;letter-spacing:.08em;color:#1c1c28;border-bottom:2px solid #1c1c28;padding-bottom:4px;margin:${px(h2)} 0 ${px(10)}}
+.r-sum,li,.r-skline{font-size:${px(st.size)};line-height:${lh}}
+.r-exp{margin-bottom:${px(gap)}}.rh{display:flex;align-items:center;gap:8px}.rh>*:first-child{flex:1 1 auto}
+.rc{font-weight:700;font-size:${px(14.5)}}.rp{font-style:italic;font-size:${px(13)};color:#555}.rd{font-family:'Geist Mono','JetBrains Mono',Menlo,monospace;font-size:${px(11.5)};color:#777;white-space:nowrap}
+ul{margin:${px(5)} 0 0;padding-left:18px}li{margin-bottom:${px(li)}}
+.r-skills-cat{display:flex;flex-direction:column;gap:${px(4)}}.r-skline .cat{font-weight:700}
+.sublabel{font-weight:700;font-size:${px(12)};color:#333;margin:7px 0 1px}
+${modern?`.resume{--x:0}h1{font-size:${px(26)}}.contact{color:#444}h2{border-bottom:0;border-top:1px solid #d8d8d8;padding:${px(8)} 0 0;font-size:${px(11)};letter-spacing:.14em;color:#555}`:""}
+@media print{.resume{box-shadow:none;border:0}}`;
+}
+function resumeExportDoc(){
+  const src=$("resumeDoc");if(!src)return null;
   const doc=src.cloneNode(true);
-  doc.querySelectorAll(".no-print").forEach(n=>n.remove());   // drop remove/add buttons
-  const css=`body{font-family:Georgia,'Times New Roman',serif;color:#1c1c28;max-width:760px;margin:40px auto;padding:0 24px;line-height:1.5}h1{font-size:28px;margin:0}.contact{font-size:12px;color:#666;margin:4px 0 0;font-family:Arial,sans-serif}h2{font-size:13px;text-transform:uppercase;letter-spacing:.08em;border-bottom:2px solid #1c1c28;padding-bottom:4px;margin:22px 0 10px;font-family:Arial,sans-serif}.r-sum{font-size:14px}.r-exp{margin-bottom:14px}.rh{display:flex;justify-content:space-between;align-items:baseline}.rc{font-weight:700}.rp{font-style:italic;color:#555}.rd{font-size:11px;color:#777;font-family:Arial,sans-serif}ul{margin:5px 0 0;padding-left:18px}li{font-size:13.5px;margin-bottom:3px}.r-skills-cat{display:flex;flex-direction:column;gap:4px}.r-skline{font-size:13px}.r-skline .cat{font-weight:700}.sublabel{font-weight:700;font-size:12px;color:#333;margin:7px 0 1px;font-family:Arial,sans-serif}`;
-  const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${esc(state.name||"Resume")}</title><style>${css}</style></head><body>${doc.innerHTML}</body></html>`;
-  const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([html],{type:"text/html"}));a.download=(state.name||"resume").replace(/\s+/g,"_")+"_resume.html";a.click();toast("Downloaded");
+  doc.querySelectorAll(".no-print,.pg-guide").forEach(n=>n.remove());   // drop controls and guides
+  (state.secHidden||[]).forEach(k=>doc.querySelectorAll(`.r-section[data-sec="${k}"]`).forEach(n=>n.remove()));
+  doc.querySelectorAll("[contenteditable]").forEach(n=>n.removeAttribute("contenteditable"));
+  doc.removeAttribute("style");doc.removeAttribute("id");doc.className="resume";
+  return doc;
+}
+let _pdfLib=null;
+function loadHtml2pdf(){
+  if(window.html2pdf)return Promise.resolve();
+  if(_pdfLib)return _pdfLib;
+  _pdfLib=new Promise((res,rej)=>{const sc=document.createElement("script");sc.src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js";sc.onload=res;sc.onerror=()=>{_pdfLib=null;rej(new Error("pdf library failed to load"));};document.head.appendChild(sc);});
+  return _pdfLib;
+}
+async function downloadResumePDF(){
+  const doc=resumeExportDoc();if(!doc){toast("Build the resume first");return;}
+  const st=rstyle();const pg=RS_PAGE[st.page]||RS_PAGE.letter;
+  toast("Rendering PDF…");
+  try{await loadHtml2pdf();}catch(e){toast("Couldn't load the PDF renderer — use Print / Save as PDF");return;}
+  // render the export copy off-screen at true page width with the export CSS
+  const host=document.createElement("div");host.style.cssText=`position:fixed;left:-20000px;top:0;width:${pg.w}px;background:#fff;z-index:-1`;
+  const style=document.createElement("style");style.textContent=resumeExportCSS();host.appendChild(style);host.appendChild(doc);document.body.appendChild(host);
+  const name=(state.name||"resume").replace(/\s+/g,"_")+"_"+((jd&&jd.company)||"resume").replace(/\s+/g,"_")+".pdf";
+  try{
+    await window.html2pdf().set({margin:0,filename:name,image:{type:"jpeg",quality:0.98},
+      html2canvas:{scale:2,useCORS:true,backgroundColor:"#ffffff",width:pg.w,windowWidth:pg.w},
+      jsPDF:{unit:"px",format:[pg.w,pg.h],orientation:"portrait",hotfixes:["px_scaling"]},
+      pagebreak:{mode:["css","legacy"]}}).from(doc).save();
+    toast("PDF downloaded");
+  }catch(e){console.error(e);toast("PDF failed — use Print / Save as PDF");}
+  finally{host.remove();}
+}
+window.tailorDownloadPDF=()=>requireAuth(()=>downloadResumePDF(),"Sign in to download your résumé");
+function downloadResume(){
+  const doc=resumeExportDoc();if(!doc){toast("Build the resume first");return;}
+  const css=resumeExportCSS();
+  {const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${esc(state.name||"Resume")}</title><link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet"><style>${css}</style></head><body><div class="resume">${doc.innerHTML}</div></body></html>`;
+    const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([html],{type:"text/html"}));a.download=(state.name||"resume").replace(/\s+/g,"_")+"_resume.html";a.click();toast("Downloaded");}
 }
 
 /* ============================================================

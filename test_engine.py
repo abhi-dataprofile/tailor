@@ -1259,6 +1259,12 @@ def test_public_board_private_everything_else():
     check("résumé design system: real page width scaled to the pane, fit-to-one-page, undo/redo, sections, meter",
           all(x in idx for x in ("function fitOnePage", "function rsScale", "function rsMeter", "function undoResume", "function rsToggleSec",
                                  'id="rsView"', 'id="rsBar"', "--rs-base", "@page{size:", '"resumeStyle","secHidden"', "Fit to one page")))
+    check("every spacing value is a slider (line, bullets, roles, headings, margins), no colour picker, two templates",
+          all(x in idx for x in ('oninput="rsSetNum(', "function rsResetSpacing", "RS_RANGE={size:", '"lh","li","gap","h2","pad","padx"', 'seg("tpl",[["classic","Classic"],["modern","Modern"]])'))
+          and "rs-accent" not in idx and "rsSet('accent'" not in idx)
+    check("exports carry the on-screen design: PDF via html2pdf (cdnjs, loaded on demand) and HTML with the same CSS numbers",
+          "function resumeExportCSS" in idx and "function downloadResumePDF" in idx and "cdnjs.cloudflare.com/ajax/libs/html2pdf.js" in idx
+          and 'onclick="tailorDownloadPDF()"' in idx and "resumeExportCSS()" in idx.split("function downloadResume(){")[1].split("\n}")[0])
     check("visitors get newest-first search, no résumé ranking (they have no résumé)",
           'oninput="searchSoon()"' in dash and 'if(anon&&$("fSort"))$("fSort").value="new";' in dash and 'const hits=anon?[]' in dash)
 

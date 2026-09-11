@@ -236,15 +236,22 @@ a{color:var(--primary-tint)}
   font-size:13px;color:var(--ink-soft);background:#fafaf7}
 .feed .fd-h b{color:var(--ink);font-weight:600}
 .feed .fd-h .right{margin-left:auto;display:flex;gap:8px;align-items:center}
-.row{display:grid;grid-template-columns:1fr auto;gap:16px;padding:14px 16px;border-bottom:1px solid var(--line-soft);
+.row{display:grid;grid-template-columns:1fr auto;gap:16px;padding:16px 18px;border-bottom:1px solid var(--line-soft);
   align-items:center;transition:background .12s;animation:up .25s ease both}
 .row:last-child{border-bottom:0}
 .row:hover{background:#fafaf7}
-.row .t{display:flex;flex-direction:column;gap:4px;min-width:0}
-.row .t a{font:600 14.5px "Inter";color:var(--ink);text-decoration:none;line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row .t{display:flex;flex-direction:column;gap:7px;min-width:0}
+.row .t a{font:600 15.5px "Geist","Inter",sans-serif;letter-spacing:-.01em;color:var(--ink);text-decoration:none;line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .row .t a:hover{text-decoration:underline}
-.row .m{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--ink-soft);flex-wrap:wrap}
-.row .m .ava{width:18px;height:18px;border-radius:5px;font-size:9px}
+.row .m{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--ink-soft);flex-wrap:wrap}
+.row .m .ava{width:22px;height:22px;border-radius:6px;font-size:9px;position:relative;overflow:hidden;flex:0 0 auto}
+.row .m .ava .logo{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#fff;border-radius:6px;opacity:0;transition:opacity .15s}
+.row .m .ava .logo.ok{opacity:1}
+.row .m .co{font-weight:600;color:var(--ink)}
+.row .pill.ok{color:var(--exc);border-color:transparent;background:var(--exc-bg)}
+.row .pill.warn{color:var(--good);border-color:transparent;background:var(--good-bg)}
+.row .pill.bad{color:var(--fair);border-color:transparent;background:var(--fair-bg)}
+.row .pill.pay{color:var(--ink);border-color:var(--line);font-family:"Geist Mono","JetBrains Mono",monospace}
 .row .m .sep{color:var(--line);margin:0 -2px}
 .row .pill{font:500 11px "Inter";padding:2px 7px;border-radius:6px;border:1px solid var(--line);color:var(--ink-soft);background:#fff;white-space:nowrap}
 .row .pill.cat{border-color:transparent;background:rgba(0,0,0,.05)}
@@ -864,8 +871,15 @@ function renderRail(){
   $("rail").innerHTML=h;
 }
 const fmtN=n=>(n==null?"":Number(n).toLocaleString("en-US"));
+function shortPay(c){const m=String(c||"").match(/\$?\s?(\d{2,3}(?:,\d{3})?|\d{2,3}k)\s*(?:-|–|to)\s*\$?\s?(\d{2,3}(?:,\d{3})?|\d{2,3}k)/i);
+  const k=v=>{v=v.toLowerCase().replace(/,/g,"");return v.endsWith("k")?v:Math.round(+v/1000)+"k";};
+  return m?`$${k(m[1])}–${k(m[2])}`:String(c).slice(0,22);}
 /* "cloudflare" → "Cloudflare", "metropolitan-commercial-bank" → "Metropolitan Commercial Bank" */
 const BRANDS={openai:"OpenAI",gitlab:"GitLab",github:"GitHub",linkedin:"LinkedIn",paypal:"PayPal",doordash:"DoorDash",airbnb:"Airbnb",mongodb:"MongoDB",hashicorp:"HashiCorp",databricks:"Databricks",deepmind:"DeepMind",youtube:"YouTube",ebay:"eBay",iheartmedia:"iHeartMedia",snowflakecomputing:"Snowflake",servicenow:"ServiceNow",coinbase:"Coinbase",jpmorgan:"JPMorgan"};
+/* company mark: favicon from the guessed domain (DuckDuckGo's icon service 404s on unknown
+   domains, so the initials underneath stay visible), else initials */
+function coMark(slug){const dom=String(slug||"").toLowerCase().replace(/[^a-z0-9-]/g,"")+".com";
+  return `<span class="ava" style="background:${avaCol(slug)}">${esc(initials(slug))}<img class="logo" alt="" src="https://icons.duckduckgo.com/ip3/${dom}.ico" loading="lazy" onload="if(this.naturalWidth>16)this.classList.add('ok');else this.remove()" onerror="this.remove()"></span>`;}
 function coName(slug){const s=String(slug||"");if(!s)return"";if(BRANDS[s.toLowerCase()])return BRANDS[s.toLowerCase()];if(/[A-Z ]/.test(s))return s;
   return s.split(/[-_.]+/).map(w=>BRANDS[w]||(/^(ai|ml|hr|it|us|uk|llc|inc)$/.test(w)?w.toUpperCase():w.charAt(0).toUpperCase()+w.slice(1))).join(" ");}
 function scopeLine(){
@@ -895,11 +909,13 @@ function renderCards(){
     return `<div class="row" onclick="goJob('${esc(j.url)}')">
       <div class="t">
         <a href="${esc(j.url)}" target="_blank" rel="noopener" title="${esc(j.title)}" onclick="event.stopPropagation()">${esc(j.title)}</a>
-        <div class="m"><span class="ava" style="background:${avaCol(j.company)}">${esc(initials(j.company))}</span>
-          <span>${esc(coName(j.company))}</span>${j.location?`<span class="sep">·</span><span>${esc(j.location)}</span>`:""}${when?`<span class="sep">·</span><span>${when}</span>`:""}${isNew(j)&&!anon&&$("fSort")&&$("fSort").value!=="new"?`<span class="pill new">New</span>`:""}
+        <div class="m">${coMark(j.company)}
+          <span class="co">${esc(coName(j.company))}</span>${j.location?`<span class="sep">·</span><span>${esc(j.location)}</span>`:""}${when?`<span class="sep">·</span><span>${when}</span>`:""}${isNew(j)&&!anon&&$("fSort")&&$("fSort").value!=="new"?`<span class="pill new">New</span>`:""}
           ${j.subcategory&&j.subcategory!=="Other"?`<span class="pill cat">${esc(j.subcategory)}</span>`:""}
           ${j.applyability==="auto"?`<span class="pill auto">⚡ auto-apply</span>`:""}
-          ${j.remote?`<span class="pill">remote</span>`:""}${sp==="no"?`<span class="pill">no sponsorship</span>`:sp==="yes"?`<span class="pill">sponsors</span>`:""}
+          ${j.remote?`<span class="pill">remote</span>`:""}${sp==="no"?`<span class="pill warn">no sponsorship</span>`:sp==="yes"?`<span class="pill ok">sponsors visas</span>`:""}
+          ${(j.req&&j.req.citizen)?`<span class="pill bad" title="The posting requires US citizenship">US citizens only</span>`:""}${(j.req&&j.req.clearance)?`<span class="pill bad" title="Security clearance required">clearance · ${esc(j.req.clearance)}</span>`:""}${(j.req&&j.req.itar)?`<span class="pill warn" title="ITAR / export-controlled — US persons">ITAR</span>`:""}
+          ${j.compensation?`<span class="pill pay" title="${esc(j.compensation)}">${esc(shortPay(j.compensation))}</span>`:""}
           ${hits.map(x=>`<span class="pill hit">${esc(x)}</span>`).join("")}</div>
       </div>
       <div class="r">

@@ -1269,6 +1269,21 @@ def test_public_board_private_everything_else():
     check("exports carry the on-screen design: PDF via html2pdf (cdnjs, loaded on demand) and HTML with the same CSS numbers",
           "function resumeExportCSS" in idx and "function downloadResumePDF" in idx and "cdnjs.cloudflare.com/ajax/libs/html2pdf.js" in idx
           and 'onclick="tailorDownloadPDF()"' in idx and "resumeExportCSS()" in idx.split("function downloadResume(){")[1].split("\n}")[0])
+    import ats as _ats
+    reqs = {"Must be a U.S. citizen and able to obtain a Top Secret clearance.": {"citizen": True, "clearance": "top secret"},
+            "Active TS/SCI with polygraph required. ITAR: must be a U.S. person.": {"clearance": "ts/sci", "itar": True},
+            "We consider applicants regardless of citizenship. No clearance required.": {},
+            "Public Trust clearance is required for this role.": {"clearance": "public trust"},
+            "Build React apps. We sponsor visas.": {}}
+    for t, want in reqs.items():
+        check(f"eligibility read: {t[:48]!r} → {want}", _ats.requirements(t) == want, str(_ats.requirements(t)))
+    check("eligibility flags travel with the posting (meta.req) and the slim row (req)",
+          '"req": requirements(full)' in open(os.path.join(root, "ats.py")).read() and "req:meta->req" in serve._SLIM)
+    fjs2 = open(os.path.join(root, "filters.js")).read()
+    check("board has an Eligibility chip and the API honours it (hide gated / only cleared / citizen-only)",
+          'radioChip("req", "Eligibility", REQ)' in fjs2 and 'p.set("req", S.req)' in fjs2
+          and all(x in open(os.path.join(root, "serve.py")).read() for x in ('req == "nocit"', 'req == "cleared"', 'req == "citizen"')))
+    check("rows show a company mark, eligibility pills and pay", "function coMark" in dash and "US citizens only" in dash and "function shortPay" in dash)
     check("visitors get newest-first search, no résumé ranking (they have no résumé)",
           'oninput="searchSoon()"' in dash and 'if(anon&&$("fSort"))$("fSort").value="new";' in dash and 'const hits=anon?[]' in dash)
 

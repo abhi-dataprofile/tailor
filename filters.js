@@ -11,8 +11,9 @@ window.TailorFilters = (function () {
   const JOBTYPE = [["intern", "Internship"], ["entry", "Entry level"], ["mid", "Mid level"], ["experienced", "Experienced"]];
   const SPON = [["", "Any sponsorship"], ["yes", "Sponsors visa"], ["hide", "Hide “no sponsorship”"]];
   const APPLYABLE = [["", "All jobs"], ["auto", "Auto-applyable only"], ["applyable", "Auto + assisted"]];
+  const REQ = [["", "Any requirements"], ["nocit", "No citizenship / clearance needed"], ["cleared", "Security-clearance roles"], ["citizen", "US-citizen-only roles"]];
 
-  const S = { mins: "", countries: [], workplace: [], companies: [], etypes: [], jobtypes: [], sponsor: "", only: "" };
+  const S = { mins: "", countries: [], workplace: [], companies: [], etypes: [], jobtypes: [], sponsor: "", only: "", req: "" };
   let facets = { countries: [], companies: [] }, onChange = function () { }, host = null;
   let hidden = [];   // chip keys the page has asked to hide (e.g. "only" for visitors — auto-apply is premium)
 
@@ -28,11 +29,12 @@ window.TailorFilters = (function () {
     if (S.workplace.length) p.set("workplace", S.workplace.join(",").toLowerCase());
     if (S.sponsor) p.set("sponsor", S.sponsor);
     if (S.only) p.set("only", S.only);
+    if (S.req) p.set("req", S.req);
     return p;
   }
   function setFacets(f) { facets = Object.assign(facets, f || {}); render(); }
-  function clearAll() { S.mins = ""; S.countries = []; S.workplace = []; S.companies = []; S.etypes = []; S.jobtypes = []; S.sponsor = ""; S.only = ""; render(); onChange(); }
-  function active() { return (S.mins ? 1 : 0) + S.countries.length + S.workplace.length + S.companies.length + S.etypes.length + S.jobtypes.length + (S.sponsor ? 1 : 0) + (S.only ? 1 : 0); }
+  function clearAll() { S.mins = ""; S.countries = []; S.workplace = []; S.companies = []; S.etypes = []; S.jobtypes = []; S.sponsor = ""; S.only = ""; S.req = ""; render(); onChange(); }
+  function active() { return (S.mins ? 1 : 0) + S.countries.length + S.workplace.length + S.companies.length + S.etypes.length + S.jobtypes.length + (S.sponsor ? 1 : 0) + (S.req ? 1 : 0) + (S.only ? 1 : 0); }
 
   function closeAll() { host && host.querySelectorAll(".tf-drop.open").forEach(d => d.classList.remove("open")); }
   document.addEventListener("click", e => { if (host && !e.target.closest(".tf-chip-wrap")) closeAll(); });
@@ -67,6 +69,7 @@ window.TailorFilters = (function () {
       multiChip("jobtypes", "Job type", JOBTYPE, false) +
       multiChip("etypes", "Employment", EMPTYPE, false) +
       radioChip("sponsor", "Sponsorship", SPON) +
+      radioChip("req", "Eligibility", REQ) +
       (hidden.includes("only") ? "" : radioChip("only", "Auto-apply", APPLYABLE)) +
       (active() ? `<button class="tf-clear" data-clear>Clear all (${active()})</button>` : "");
     wire();

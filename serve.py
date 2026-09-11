@@ -609,7 +609,7 @@ def _loc_param(loc):
 # slim column set for the list/scoring pool — deliberately excludes description & meta
 # (the big fields), so a page loads fast; descriptions are fetched only for the shown page.
 _SLIM = ("id,source_uid,vendor,company_slug,title,location,country,remote,url,"
-         "sponsorship,posted_at,first_seen_at,department,employment_type,compensation,skills")
+         "sponsorship,posted_at,first_seen_at,department,employment_type,compensation,skills,req:meta->req")
 _POOL = 3000     # rank/browse within the newest N matching postings (~3 days of the index); fetched in 1,000-row chunks
 _CHUNK = 1000    # PostgREST's max-rows per request
 _PAGE = 60
@@ -888,8 +888,22 @@ def jobs_query(qs, user="local"):
         params["posted_at"] = f"gte.{time.strftime('%Y-%m-%d', time.gmtime(time.time() - int(days)*86400))}"
     if loc:
         op, pat = _loc_param(loc); params["location"] = f"{op}.{pat}"
+    # PostgREST takes ONE top-level or=; several OR-groups go under and=(or(..),or(..)).
+    groups = []
     if terms:
-        params["or"] = "(" + ",".join(f"title.ilike.*{t}*" for t in terms) + ")"
+        groups.append(",".join(f"title.ilike.*{t}*" for t in terms))
+    req = one("req").lower()      # eligibility: 'nocit' hides citizenship/clearance-gated roles; 'cleared' shows only cleared ones
+    if req == "nocit":                  # hide roles that require citizenship or a clearance
+        params["meta->req->>citizen"] = "is.null"
+        params["meta->req->>clearance"] = "is.null"
+    elif req == "cleared":
+        params["meta->req->>clearance"] = "not.is.null"
+    elif req == "citizen":
+        params["meta->req->>citizen"] = "eq.true"
+    if len(groups) == 1:
+        params["or"] = "(" + groups[0] + ")"
+    elif groups:
+        params["and"] = "(" + ",".join(f"or({g})" for g in groups) + ")"
     pool = _cached_pool(params)   # user-independent filter result, cached briefly → fast pagination & multi-user
     if jobtypes:                  # seniority/job-type is derived from the title, filtered here
         pool = [j for j in pool if _seniority(j.get("title", "")) in jobtypes]

@@ -80,13 +80,15 @@ def count(table, params=None, timeout=20):
     except Exception:
         return 0
 
-def upsert(table, rows, on_conflict, update=True):
-    """Idempotent insert. update=False → 'ignore-duplicates' (only genuinely new rows)."""
+def upsert(table, rows, on_conflict, update=True, minimal=False, timeout=45):
+    """Idempotent insert. update=False → 'ignore-duplicates' (only genuinely new rows).
+    minimal=True → no rows echoed back (bulk backfills of wide tables)."""
     if not rows:
         return []
     resolution = "merge-duplicates" if update else "ignore-duplicates"
+    ret = "minimal" if minimal else "representation"
     return _request("POST", table, params={"on_conflict": on_conflict},
-                    body=rows, prefer=f"resolution={resolution},return=representation") or []
+                    body=rows, prefer=f"resolution={resolution},return={ret}", timeout=timeout) or []
 
 def update(table, params, patch, minimal=False):
     # minimal=True → Prefer: return=minimal (no body echoed back). Essential for bulk

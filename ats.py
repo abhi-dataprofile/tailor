@@ -183,6 +183,47 @@ def load_companies():
                 seen.add((v, slug)); out.append((v, slug, 0))
     return out
 
+# ---- eligibility signals: US citizenship, security clearance, ITAR / US-person ----
+# Kept in jobs.meta.req so the board can hide roles a candidate can't take (international
+# students) or show only cleared roles. Sentence-scoped so "no clearance required" doesn't
+# count as requiring one.
+_CIT = re.compile(r"\b(u\.?s\.?|united states) (citizen(ship)?|national)s?\b|\bcitizenship (is )?required\b|\bmust be (a )?(u\.?s\.?|united states) citizen", re.I)
+_CIT_NEG = re.compile(r"\b(not|no|regardless of|without regard to|irrespective of|do not|does not|don'?t) (require|need|consider)[^.]{0,20}citizen|\bcitizenship (status )?(is not|isn'?t|will not)\b|\bregardless of[^.]{0,40}citizenship", re.I)
+_CLR = re.compile(r"\b(ts/?sci|top[- ]secret|secret clearance|security clearance|active clearance|dod clearance|public trust|clearance (is )?required|obtain (and maintain )?(a )?(security )?clearance|q clearance|l clearance|sci clearance|polygraph)\b", re.I)
+_CLR_NEG = re.compile(r"\b(no|not|without|does not|doesn'?t|do not|don'?t|isn'?t|is not|never)\b[^.]{0,30}\bclearance", re.I)
+_ITAR = re.compile(r"\b(itar|ear regulations?|export[- ]control(led)?|u\.?s\.? person(s)?\b)", re.I)
+
+def requirements(text):
+    """{'citizen': True, 'clearance': 'ts/sci'|'top secret'|'secret'|'public trust'|'required',
+    'itar': True} — only keys that fire; {} when nothing does."""
+    if not text:
+        return {}
+    out = {}
+    text = re.sub(r"\bU\.S\.(?=\s)", "US", text, flags=re.I)   # "U.S. citizen" must not split as a sentence
+    low = text.lower()
+    if "citizen" in low:
+        for sent in re.split(r"(?<=[.!?])\s+|\n+", text):
+            if _CIT.search(sent) and not _CIT_NEG.search(sent):
+                out["citizen"] = True
+                break
+    if "clearance" in low or "ts/sci" in low or "polygraph" in low or "public trust" in low:
+        level = None
+        for sent in re.split(r"(?<=[.!?])\s+|\n+", text):
+            m = _CLR.search(sent)
+            if not m or _CLR_NEG.search(sent):
+                continue
+            sl = sent.lower()
+            lvl = ("ts/sci" if re.search(r"ts/?sci|sci", sl) else "top secret" if "top secret" in sl or "top-secret" in sl
+                   else "secret" if re.search(r"\bsecret\b", sl) else "public trust" if "public trust" in sl else "required")
+            rank = ["required", "public trust", "secret", "top secret", "ts/sci"]
+            if level is None or rank.index(lvl) > rank.index(level):
+                level = lvl
+        if level:
+            out["clearance"] = level
+    if _ITAR.search(text) and ("itar" in low or "export control" in low or "export-control" in low or re.search(r"\bu\.?s\.? persons?\b", low)):
+        out["itar"] = True
+    return out
+
 # ---- feed fetch → normalized job dicts (full descriptions + fine-grained detail) ----
 def _norm(vendor, slug, external_id, title, url, location, remote, desc,
           department="", team="", employment_type="", compensation="",
@@ -204,7 +245,8 @@ def _norm(vendor, slug, external_id, title, url, location, remote, desc,
         "compensation": (compensation or "")[:200],
         "updated_at": _iso_ts(updated_at) or "",
         "posted_at": posted_at or "",
-        "meta": {k: v for k, v in (meta or {}).items() if v},   # raw extras kept as jsonb
+        "meta": dict({k: v for k, v in (meta or {}).items() if v},   # raw extras kept as jsonb
+                    **({"req": requirements(full)} if requirements(full) else {})),
     })   # _scrub: strip NUL/control chars Postgres text can't store
 
 def _greenhouse(slug, timeout):
